@@ -1,9 +1,10 @@
+use redis_macros::{FromRedisValue, ToRedisArgs};
 use sea_orm::{FromQueryResult, prelude::DateTimeLocal};
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+use std::{collections::HashMap, fmt::Display};
+#[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
 pub enum NodeType {
+    #[default]
     #[serde(rename = "bpmn:startEvent")]
     StartEvent,
     #[serde(rename = "bpmn:serviceTask")]
@@ -38,23 +39,25 @@ impl TryFrom<&str> for NodeType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 pub enum Task {
     #[serde(rename = "standard")]
     Standard(StandardJob),
     #[serde(rename = "custom")]
     Custom(CustomJob),
     #[serde(rename = "none")]
+    #[default]
     None,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
 pub enum TaskType {
     #[serde(rename = "standard")]
     Standard,
     #[serde(rename = "custom")]
     Custom,
     #[serde(rename = "none")]
+    #[default]
     None,
 }
 
@@ -93,7 +96,7 @@ pub struct StandardJob {
     pub eid: String,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize, FromRedisValue, ToRedisArgs)]
 pub struct NodeConfig {
     pub id: String,
     pub name: String,
@@ -103,7 +106,7 @@ pub struct NodeConfig {
     pub data: serde_json::Value,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct EdgeConfig {
     pub id: String,
     pub name: String,
@@ -142,4 +145,55 @@ pub struct WorkflowVersionDetailModel {
     pub updated_user: String,
     pub created_time: DateTimeLocal,
     pub updated_time: DateTimeLocal,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct WorkflowJobArgs {
+    pub name: String,
+    pub val: String,
+    pub node_assignment: Option<WorkflowJobArgsAssignment>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct WorkflowJobArgsAssignment {
+    pub source_node_id: String,
+    pub is_first_instance: bool,
+    pub is_completed_result: bool,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct WorkflowNodeActualArgs {
+    pub formal: Vec<WorkflowJobArgs>,
+    pub args: HashMap<String, serde_json::Value>,
+    pub code: String,
+    pub target: Vec<String>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct WorkflowNodeArgs {
+    pub node_id: String,
+    pub target: Vec<String>,
+    pub args: HashMap<String, serde_json::Value>,
+    pub code: String,
+}
+
+#[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs)]
+pub struct WorkflowProcessArgs {
+    pub default_target: Vec<String>,
+    pub nodes: Vec<WorkflowNodeArgs>,
+}
+
+#[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs)]
+pub struct WorkflowNode {
+    pub process_id: String,
+    pub origin_nodes: Vec<NodeConfig>,
+    pub eid: Option<String>,
+    pub user_variables: serde_json::Value,
+    pub process_args: Option<WorkflowProcessArgs>,
+    pub eval_val: String,
+    pub is_not_ready: bool,
+    pub flow_depth: u32,
+    pub actual_args: Option<WorkflowNodeActualArgs>,
+    pub reached_edge: EdgeConfig,
+    pub current_node: NodeConfig,
 }

@@ -4835,6 +4835,7 @@ dependencies = [
  "nanoid",
  "poem",
  "redis 0.27.4",
+ "redis-macros",
  "reqwest",
  "russh",
  "russh-keys",

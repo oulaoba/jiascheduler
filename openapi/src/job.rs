@@ -143,7 +143,7 @@ pub async fn start(state: AppState) -> Result<()> {
                             }
                             Msg::AgentOnline(msg) => agent_online(state.clone(), msg).await?,
                             Msg::AgentOffline(msg) => agent_offline(state.clone(), msg).await?,
-                            Msg::WorkflowEvent(msg) => process_workflow(state.clone(), msg).await?,
+                            Msg::Workflow(msg) => process_workflow(state.clone(), msg).await?,
                         };
                         Ok(())
                     })

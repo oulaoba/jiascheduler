@@ -34,3 +34,4 @@ config.workspace = true
 utils.workspace = true
 evalexpr.workspace = true
 serde_repr.workspace = true
+redis-macros.workspace = true

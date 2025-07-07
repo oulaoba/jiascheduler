@@ -22,7 +22,7 @@ pub enum Msg {
     Heartbeat(HeartbeatParams),
     AgentOnline(AgentOnlineParams),
     AgentOffline(AgentOfflineParams),
-    WorkflowEvent(WorkflowNodeParams),
+    Workflow(WorkflowNodeParams),
 }
 
 #[derive(Clone)]

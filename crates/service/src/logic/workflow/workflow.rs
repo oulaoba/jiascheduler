@@ -1,13 +1,17 @@
 use core::matches;
 
 use crate::logic::types::UserInfo;
-use crate::logic::workflow::types::{self, CustomJob, NodeType, StandardJob, Task, TaskType};
+use crate::logic::workflow::types::{
+    self, CustomJob, NodeType, StandardJob, Task, TaskType, WorkflowNode,
+};
 use crate::{
     entity::{prelude::*, team_member},
     state::AppContext,
 };
 use anyhow::{Result, anyhow};
+use automate::bus::Msg;
 use entity::{team, workflow, workflow_version};
+use redis::AsyncCommands;
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
@@ -22,6 +26,9 @@ pub struct WorkflowLogic<'a> {
 }
 
 impl<'a> WorkflowLogic<'a> {
+    pub const WORKFLOW_TOPIC: &'static str = "jiascheduler:workflow";
+    pub const CONSUMER_GROUP: &'static str = "jiascheduler-group";
+
     pub fn new(ctx: &'a AppContext) -> Self {
         Self { ctx }
     }
@@ -348,5 +355,16 @@ impl<'a> WorkflowLogic<'a> {
         ret.version_info = Some(version_record.version_info);
 
         Ok(ret)
+    }
+
+    pub async fn send_msg<'b>(&self, items: &'b [(&'b str, WorkflowNode)]) -> Result<String> {
+        let mut conn = self.ctx.redis().get_multiplexed_async_connection().await?;
+        let v: String = conn.xadd(Self::WORKFLOW_TOPIC, "*", items).await?;
+        Ok(v)
+    }
+
+    pub async fn flow_next(&self, node: WorkflowNode) -> Result<()> {
+        let val = self.send_msg(&[("workflow", node)]).await;
+        Ok(())
     }
 }
