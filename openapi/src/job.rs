@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use automate::{
-    bridge::msg::{AgentOfflineParams, AgentOnlineParams, HeartbeatParams, WorkflowNodeParams},
+    bridge::msg::{AgentOfflineParams, AgentOnlineParams, HeartbeatParams},
     bus::{Bus, Msg},
 };
 
@@ -76,11 +76,6 @@ async fn agent_offline(state: AppState, msg: AgentOfflineParams) -> Result<()> {
         .await?)
 }
 
-async fn process_workflow(state: AppState, msg: WorkflowNodeParams) -> Result<()> {
-    info!("process workflow node");
-    todo!()
-}
-
 pub async fn instance_health_check(state: AppState) {
     let is_master = Arc::new(RwLock::new(false));
     let state_clone = state.clone();
@@ -128,11 +123,13 @@ pub async fn start(state: AppState) -> Result<()> {
 
     instance_health_check(state.clone()).await;
 
+    // process job update msg
+    let state_clone = state.clone();
     tokio::spawn(async move {
         loop {
             let ret = bus
                 .recv(|_key, msg| {
-                    let state = state.clone();
+                    let state = state_clone.clone();
                     Box::pin(async move {
                         match msg {
                             Msg::UpdateJob(v) => {
@@ -143,7 +140,6 @@ pub async fn start(state: AppState) -> Result<()> {
                             }
                             Msg::AgentOnline(msg) => agent_online(state.clone(), msg).await?,
                             Msg::AgentOffline(msg) => agent_offline(state.clone(), msg).await?,
-                            Msg::Workflow(msg) => process_workflow(state.clone(), msg).await?,
                         };
                         Ok(())
                     })
@@ -156,5 +152,27 @@ pub async fn start(state: AppState) -> Result<()> {
             info!("restart recv bus msg");
         }
     });
+
+    // process workflow node msg
+    tokio::spawn(async move {
+        let workflow_service = state.service().workflow;
+        loop {
+            let ret = workflow_service
+                .recv(|_key, msg| {
+                    let state = state.clone();
+                    Box::pin(async move {
+                        state.service().workflow.process_node(msg).await?;
+                        Ok(())
+                    })
+                })
+                .await;
+            if let Err(e) = ret {
+                error!("failed to recv workflow msg - {e}");
+                sleep(Duration::from_millis(500)).await;
+            }
+            info!("restart recv bus msg");
+        }
+    });
+
     Ok(())
 }

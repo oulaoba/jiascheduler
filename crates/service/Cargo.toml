@@ -35,3 +35,4 @@ utils.workspace = true
 evalexpr.workspace = true
 serde_repr.workspace = true
 redis-macros.workspace = true
+local-ip-address.workspace = true

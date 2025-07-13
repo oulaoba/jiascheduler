@@ -7,7 +7,7 @@ members = [
     "crates/leader-election",
     "crates/entity",
     "crates/service",
-    "crates/utils",
+    "crates/utils", "crates/workflow",
 ]
 
 [package]

@@ -4832,6 +4832,7 @@ dependencies = [
  "entity",
  "evalexpr",
  "futures",
+ "local-ip-address",
  "nanoid",
  "poem",
  "redis 0.27.4",
@@ -6488,6 +6489,10 @@ checksum = "3268f3d866458b787f390cf61f4bbb563b922d091359f9608842999eaee3943c"
 dependencies = [
  "bitflags 2.5.0",
 ]
+
+[[package]]
+name = "workflow"
+version = "0.1.0"
 
 [[package]]
 name = "wyz"

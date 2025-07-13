@@ -173,8 +173,7 @@ pub struct WorkflowNodeActualArgs {
 pub struct WorkflowNodeArgs {
     pub node_id: String,
     pub target: Vec<String>,
-    pub args: HashMap<String, serde_json::Value>,
-    pub code: String,
+    pub args: serde_json::Value,
 }
 
 #[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs)]
@@ -187,13 +186,12 @@ pub struct WorkflowProcessArgs {
 pub struct WorkflowNode {
     pub process_id: String,
     pub origin_nodes: Vec<NodeConfig>,
-    pub eid: Option<String>,
+    pub origin_edges: Vec<EdgeConfig>,
     pub user_variables: serde_json::Value,
     pub process_args: Option<WorkflowProcessArgs>,
-    pub eval_val: String,
-    pub is_not_ready: bool,
+    pub eval_val: bool,
     pub flow_depth: u32,
     pub actual_args: Option<WorkflowNodeActualArgs>,
-    pub reached_edge: EdgeConfig,
+    pub reached_edge: Option<EdgeConfig>,
     pub current_node: NodeConfig,
 }

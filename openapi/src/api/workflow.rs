@@ -1,10 +1,11 @@
-use anyhow::Context;
+use anyhow::{Context, Result};
 use poem::{web::Data, Endpoint, EndpointExt};
 use poem_openapi::{
     param::{Header, Query},
     payload::Json,
     OpenApi,
 };
+use service::logic::workflow::types::{EdgeConfig, NodeConfig};
 
 use crate::{
     api::workflow::types::{StandardJob, TaskType},
@@ -16,7 +17,7 @@ mod types {
     use poem_openapi::{Enum, Object};
     use serde::{Deserialize, Serialize};
     use service::logic;
-    use std::fmt::Display;
+    use std::{collections::HashMap, fmt::Display};
 
     pub fn default_page() -> u64 {
         1
@@ -43,12 +44,16 @@ mod types {
     #[derive(Serialize, Enum, Deserialize, Clone)]
     pub enum NodeType {
         #[oai(rename = "bpmn:startEvent")]
+        #[serde(rename = "bpmn:startEvent")]
         StartEvent,
         #[oai(rename = "bpmn:serviceTask")]
+        #[serde(rename = "bpmn:serviceTask")]
         ServiceTask,
         #[oai(rename = "bpmn:endEvent")]
+        #[serde(rename = "bpmn:endEvent")]
         EndEvent,
         #[oai(rename = "bpmn:exclusiveGateway")]
+        #[serde(rename = "bpmn:exclusiveGateway")]
         ExclusiveGateway,
     }
 
@@ -85,6 +90,9 @@ mod types {
     impl TryFrom<logic::workflow::types::Task> for Task {
         type Error = anyhow::Error;
         fn try_from(value: logic::workflow::types::Task) -> Result<Self, Self::Error> {
+            let data = serde_json::to_string_pretty(&value)?;
+
+            println!("here---{data:?}");
             Ok(match value {
                 logic::workflow::types::Task::Standard(standard_job) => Self {
                     standard: Some(StandardJob {
@@ -135,10 +143,13 @@ mod types {
     #[derive(Serialize, Enum, Deserialize, Clone, PartialEq)]
     pub enum TaskType {
         #[oai(rename = "standard")]
+        #[serde(rename = "standard")]
         Standard,
         #[oai(rename = "custom")]
+        #[serde(rename = "custom")]
         Custom,
         #[oai(rename = "none")]
+        #[serde(rename = "none")]
         None,
     }
 
@@ -323,13 +334,27 @@ mod types {
     #[derive(Object, Serialize, Default)]
     pub struct StartProcessReq {
         pub workflow_id: u64,
-        pub version_id: Option<u64>,
-        pub data: serde_json::Value,
+        pub version_id: u64,
+        pub process_name: String,
+        pub process_args: WorkflowProcessArgs,
+    }
+
+    #[derive(Default, Serialize, Deserialize, Object)]
+    pub struct WorkflowNodeArgs {
+        pub node_id: String,
+        pub target: Vec<String>,
+        pub args: serde_json::Value,
+    }
+
+    #[derive(Default, Serialize, Deserialize, Object)]
+    pub struct WorkflowProcessArgs {
+        pub default_target: Vec<String>,
+        pub nodes: Vec<WorkflowNodeArgs>,
     }
 
     #[derive(Object, Serialize, Default)]
     pub struct StartProcessResp {
-        pub process_id: u64,
+        pub process_id: String,
     }
 }
 
@@ -527,17 +552,39 @@ impl WorkflowApi {
         let list = ret
             .0
             .into_iter()
-            .map(|v| types::WorkflowVersionRecord {
-                id: v.id,
-                workflow_id: v.workflow_id,
-                version: v.version,
-                version_info: v.version_info,
-                nodes: v.nodes.map(|v| serde_json::from_value(v).unwrap_or(vec![])),
-                edges: v.edges.map(|v| serde_json::from_value(v).unwrap_or(vec![])),
-                created_time: local_time!(v.created_time),
-                created_user: v.created_user,
+            .map::<Result<types::WorkflowVersionRecord>, _>(|v| {
+                let nodes = v
+                    .nodes
+                    .map(|v| serde_json::from_value::<Vec<NodeConfig>>(v))
+                    .transpose()?
+                    .map(|v| {
+                        v.into_iter()
+                            .map(|v| types::NodeConfig::try_from(v))
+                            .collect()
+                    })
+                    .transpose()?;
+                let edges = v
+                    .edges
+                    .map(|v| serde_json::from_value::<Vec<EdgeConfig>>(v))
+                    .transpose()?
+                    .map(|v| {
+                        v.into_iter()
+                            .map(|v| types::EdgeConfig::try_from(v))
+                            .collect()
+                    })
+                    .transpose()?;
+                Ok(types::WorkflowVersionRecord {
+                    id: v.id,
+                    workflow_id: v.workflow_id,
+                    version: v.version,
+                    version_info: v.version_info,
+                    nodes,
+                    edges,
+                    created_time: local_time!(v.created_time),
+                    created_user: v.created_user,
+                })
             })
-            .collect();
+            .collect::<Result<_>>()?;
 
         return_ok!(types::QueryWorkflowVersionResp { total: ret.1, list })
     }
@@ -594,6 +641,37 @@ impl WorkflowApi {
         Json(req): Json<types::StartProcessReq>,
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
     ) -> api_response!(types::StartProcessResp) {
-        todo!()
+        let svc = state.service();
+        if !svc
+            .workflow
+            .can_write_workflow(&user_info, team_id, Some(req.workflow_id))
+            .await?
+        {
+            return_err!("no permission");
+        }
+
+        let process_id = svc
+            .workflow
+            .start_process(
+                &user_info,
+                req.workflow_id,
+                req.version_id,
+                req.process_name,
+                logic::workflow::types::WorkflowProcessArgs {
+                    default_target: req.process_args.default_target,
+                    nodes: req
+                        .process_args
+                        .nodes
+                        .into_iter()
+                        .map(|v| logic::workflow::types::WorkflowNodeArgs {
+                            node_id: v.node_id,
+                            target: v.target,
+                            args: v.args,
+                        })
+                        .collect(),
+                },
+            )
+            .await?;
+        return_ok!(types::StartProcessResp { process_id })
     }
 }

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: u64,
+    pub process_id: String,
     pub process_name: String,
     pub workflow_id: u64,
     pub process_args: Option<Json>,

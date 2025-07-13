@@ -1,8 +1,9 @@
 use core::matches;
+use std::pin::Pin;
 
 use crate::logic::types::UserInfo;
 use crate::logic::workflow::types::{
-    self, CustomJob, NodeType, StandardJob, Task, TaskType, WorkflowNode,
+    self, CustomJob, NodeType, StandardJob, Task, TaskType, WorkflowNode, WorkflowProcessArgs,
 };
 use crate::{
     entity::{prelude::*, team_member},
@@ -10,14 +11,18 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use automate::bus::Msg;
-use entity::{team, workflow, workflow_version};
-use redis::AsyncCommands;
+use entity::{team, workflow, workflow_process, workflow_version};
+use local_ip_address::local_ip;
+use redis::streams::{StreamMaxlen, StreamReadOptions, StreamReadReply};
+use redis::{AsyncCommands, from_redis_value};
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
     QuerySelect, QueryTrait,
 };
-use sea_query::Expr;
+use sea_query::{Expr, any};
+use serde_json::json;
+use tracing::{debug, error, info, warn};
 
 use super::types::{EdgeConfig, NodeConfig};
 
@@ -357,14 +362,157 @@ impl<'a> WorkflowLogic<'a> {
         Ok(ret)
     }
 
-    pub async fn send_msg<'b>(&self, items: &'b [(&'b str, WorkflowNode)]) -> Result<String> {
+    async fn send_msg<'b>(&self, items: &'b [(&'b str, WorkflowNode)]) -> Result<String> {
         let mut conn = self.ctx.redis().get_multiplexed_async_connection().await?;
         let v: String = conn.xadd(Self::WORKFLOW_TOPIC, "*", items).await?;
         Ok(v)
     }
 
-    pub async fn flow_next(&self, node: WorkflowNode) -> Result<()> {
-        let val = self.send_msg(&[("workflow", node)]).await;
-        Ok(())
+    pub async fn flow_next(&self, node: WorkflowNode) -> Result<String> {
+        let val = self.send_msg(&[("workflow", node)]).await?;
+        Ok(val)
+    }
+
+    pub async fn process_node(&self, node: WorkflowNode) -> Result<()> {
+        let node = serde_json::to_string_pretty(&node)?;
+
+        error!("{node:#?}");
+        todo!();
+    }
+
+    pub async fn start_process(
+        &self,
+        user_info: &UserInfo,
+        workflow_id: u64,
+        version_id: u64,
+        process_name: String,
+        process_args: WorkflowProcessArgs,
+    ) -> Result<String> {
+        let version_record = WorkflowVersion::find()
+            .filter(workflow_version::Column::WorkflowId.eq(workflow_id))
+            .filter(workflow_version::Column::Id.eq(version_id))
+            .one(&self.ctx.db)
+            .await?
+            .ok_or(anyhow!("not found workflow version record"))?;
+
+        let nodes: Vec<NodeConfig> =
+            serde_json::from_value(version_record.nodes.ok_or(anyhow!("invalid nodes data"))?)?;
+        let edges: Vec<EdgeConfig> =
+            serde_json::from_value(version_record.edges.ok_or(anyhow!("invalid edges data"))?)?;
+
+        let start_node = nodes
+            .iter()
+            .find(|&v| v.node_type == NodeType::StartEvent)
+            .ok_or(anyhow!("not found start node"))?
+            .to_owned();
+        let curr_node_id = start_node.id.clone();
+
+        let process_id = nanoid::nanoid!();
+        self.flow_next(WorkflowNode {
+            process_id: process_id.clone(),
+            origin_nodes: nodes,
+            origin_edges: edges,
+            user_variables: json!({}),
+            process_args: None,
+            eval_val: false,
+            flow_depth: 0,
+            actual_args: None,
+            reached_edge: None,
+            current_node: start_node,
+        })
+        .await?;
+
+        WorkflowProcess::insert(workflow_process::ActiveModel {
+            process_id: Set(process_id.clone()),
+            process_name: Set(process_name),
+            workflow_id: Set(workflow_id),
+            process_args: NotSet,
+            process_status: NotSet,
+            current_node: Set(curr_node_id),
+            created_user: Set(user_info.username.clone()),
+            updated_user: Set(user_info.username.clone()),
+            ..Default::default()
+        })
+        .exec(&self.ctx.db)
+        .await?;
+
+        Ok(process_id)
+    }
+
+    pub async fn recv(
+        &self,
+        mut cb: impl Sync
+        + Send
+        + FnMut(String, WorkflowNode) -> Pin<Box<dyn Future<Output = Result<()>> + Send>>,
+    ) -> Result<String> {
+        let redis_client = self.ctx.redis();
+        let mut conn = redis_client.get_multiplexed_async_connection().await?;
+
+        let ret: String = conn
+            .xgroup_create_mkstream(Self::WORKFLOW_TOPIC, Self::CONSUMER_GROUP, "$")
+            .await
+            .map_or_else(
+                |e| {
+                    warn!("failed create workflow stream group - {}", e);
+                    "".to_string()
+                },
+                |v| v,
+            );
+
+        info!("create stream group {}", ret);
+
+        let opts = StreamReadOptions::default()
+            .group(Self::CONSUMER_GROUP, local_ip()?.to_string())
+            .block(100)
+            .count(100);
+
+        loop {
+            let ret: StreamReadReply = conn
+                .xread_options(&[Self::WORKFLOW_TOPIC], &[">"], &opts)
+                .await?;
+
+            match conn
+                .xtrim::<_, u64>(Self::WORKFLOW_TOPIC, StreamMaxlen::Equals(5000))
+                .await
+            {
+                Ok(n) => debug!("trim stream {} {n} entries", Self::WORKFLOW_TOPIC),
+                Err(e) => error!("failed to trim stream - {e}"),
+            };
+
+            for stream_key in ret.keys {
+                let msg_key = stream_key.key;
+
+                for stream_id in stream_key.ids {
+                    for (k, v) in stream_id.map {
+                        let ret = match from_redis_value::<WorkflowNode>(&v) {
+                            Ok(msg) => cb(k, msg).await,
+                            Err(e) => {
+                                error!("failed to parse redis val - {e}");
+                                Ok(())
+                            }
+                        };
+
+                        if let Err(e) = ret {
+                            error!("failed to handle msg - {e}");
+                        }
+
+                        let _: i32 = conn
+                            .xack(
+                                msg_key.clone(),
+                                Self::CONSUMER_GROUP,
+                                &[stream_id.id.clone()],
+                            )
+                            .await
+                            .map_or_else(
+                                |v| {
+                                    error!("faile to exec xack - {}", v);
+                                    0
+                                },
+                                |v| v,
+                            );
+                    }
+                }
+            }
+        }
     }
 }

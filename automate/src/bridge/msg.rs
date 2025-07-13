@@ -225,8 +225,3 @@ pub struct AgentOfflineParams {
     pub agent_ip: String,
     pub mac_addr: String,
 }
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WorkflowNodeParams {
-    pub data: serde_json::Value,
-}

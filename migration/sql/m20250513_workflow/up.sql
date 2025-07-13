@@ -33,6 +33,7 @@ CREATE TABLE `workflow_version` (
 
 CREATE TABLE `workflow_process` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
+    `process_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT 'process id',
     `process_name` varchar(100) NOT NULL DEFAULT '' COMMENT 'process name',
     `workflow_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'workflow id',
     `process_status` varchar(100) NOT NULL DEFAULT 'start_process' COMMENT 'process status',
@@ -46,7 +47,7 @@ CREATE TABLE `workflow_process` (
 
 CREATE TABLE `workflow_process_node` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
-    `process_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'process id',
+    `process_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT 'process id',
     `node_name` varchar(100) NOT NULL DEFAULT '' COMMENT 'process node name',
     `node_id` varchar(100) NOT NULL DEFAULT '' COMMENT 'process node id',
     `node_status` varchar(100) NOT NULL DEFAULT 'start' COMMENT 'node status:start running, end',
@@ -59,12 +60,13 @@ CREATE TABLE `workflow_process_node` (
     `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'creator username',
     `created_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
     `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+    KEY `idx_process_id` (`process_id`, `node_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'workflow process node';
 
 CREATE TABLE `workflow_process_edge` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
-    `process_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'process id',
+    `process_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT 'process id',
     `run_id` varchar(100) NOT NULL DEFAULT '' COMMENT 'run id',
     `edge_id` varchar(100) NOT NULL DEFAULT '' COMMENT 'edge id',
     `edge_type` varchar(50) NOT NULL DEFAULT '' COMMENT 'edge type',

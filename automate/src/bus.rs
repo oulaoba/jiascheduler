@@ -12,9 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use tracing::{debug, error, info, warn};
 
-use crate::bridge::msg::{
-    AgentOfflineParams, AgentOnlineParams, HeartbeatParams, UpdateJobParams, WorkflowNodeParams,
-};
+use crate::bridge::msg::{AgentOfflineParams, AgentOnlineParams, HeartbeatParams, UpdateJobParams};
 
 #[derive(Debug, Serialize, Deserialize, FromRedisValue, ToRedisArgs)]
 pub enum Msg {
@@ -22,7 +20,6 @@ pub enum Msg {
     Heartbeat(HeartbeatParams),
     AgentOnline(AgentOnlineParams),
     AgentOffline(AgentOfflineParams),
-    Workflow(WorkflowNodeParams),
 }
 
 #[derive(Clone)]
