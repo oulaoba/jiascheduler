@@ -358,6 +358,8 @@ impl<'a> WorkflowLogic<'a> {
         ret.version = Some(version_record.version);
         ret.version_id = Some(version_record.id);
         ret.version_info = Some(version_record.version_info);
+        ret.nodes = version_record.nodes;
+        ret.edges = version_record.edges;
 
         Ok(ret)
     }
@@ -376,7 +378,7 @@ impl<'a> WorkflowLogic<'a> {
     pub async fn process_node(&self, node: WorkflowNode) -> Result<()> {
         let node = serde_json::to_string_pretty(&node)?;
 
-        error!("{node:#?}");
+        println!("{node:?}");
         todo!();
     }
 
@@ -386,7 +388,7 @@ impl<'a> WorkflowLogic<'a> {
         workflow_id: u64,
         version_id: u64,
         process_name: String,
-        process_args: WorkflowProcessArgs,
+        process_args: Option<WorkflowProcessArgs>,
     ) -> Result<String> {
         let version_record = WorkflowVersion::find()
             .filter(workflow_version::Column::WorkflowId.eq(workflow_id))
@@ -426,11 +428,11 @@ impl<'a> WorkflowLogic<'a> {
             process_id: Set(process_id.clone()),
             process_name: Set(process_name),
             workflow_id: Set(workflow_id),
+            version_id: Set(version_id),
             process_args: NotSet,
             process_status: NotSet,
             current_node: Set(curr_node_id),
             created_user: Set(user_info.username.clone()),
-            updated_user: Set(user_info.username.clone()),
             ..Default::default()
         })
         .exec(&self.ctx.db)

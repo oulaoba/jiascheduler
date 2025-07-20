@@ -178,8 +178,8 @@ pub struct WorkflowNodeArgs {
 
 #[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs)]
 pub struct WorkflowProcessArgs {
-    pub default_target: Vec<String>,
-    pub nodes: Vec<WorkflowNodeArgs>,
+    pub default_target: Option<Vec<String>>,
+    pub nodes: Option<Vec<WorkflowNodeArgs>>,
 }
 
 #[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs)]

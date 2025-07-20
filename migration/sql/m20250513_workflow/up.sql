@@ -36,6 +36,7 @@ CREATE TABLE `workflow_process` (
     `process_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT 'process id',
     `process_name` varchar(100) NOT NULL DEFAULT '' COMMENT 'process name',
     `workflow_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'workflow id',
+    `version_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'version id',
     `process_status` varchar(100) NOT NULL DEFAULT 'start_process' COMMENT 'process status',
     `current_node` varchar(100) NOT NULL DEFAULT '' COMMENT 'current node',
     `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'creator username',

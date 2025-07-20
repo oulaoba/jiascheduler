@@ -11,11 +11,11 @@ pub struct Model {
     pub process_id: String,
     pub process_name: String,
     pub workflow_id: u64,
+    pub version_id: u64,
     pub process_args: Option<Json>,
     pub process_status: String,
     pub current_node: String,
     pub created_user: String,
-    pub updated_user: String,
     pub created_time: DateTimeLocal,
     pub updated_time: DateTimeLocal,
 }

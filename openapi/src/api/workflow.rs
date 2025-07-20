@@ -336,7 +336,7 @@ mod types {
         pub workflow_id: u64,
         pub version_id: u64,
         pub process_name: String,
-        pub process_args: WorkflowProcessArgs,
+        pub process_args: Option<WorkflowProcessArgs>,
     }
 
     #[derive(Default, Serialize, Deserialize, Object)]
@@ -348,8 +348,9 @@ mod types {
 
     #[derive(Default, Serialize, Deserialize, Object)]
     pub struct WorkflowProcessArgs {
-        pub default_target: Vec<String>,
-        pub nodes: Vec<WorkflowNodeArgs>,
+        pub default_target: Option<Vec<String>>,
+        pub user_variables: Option<serde_json::Value>,
+        pub nodes: Option<Vec<WorkflowNodeArgs>>,
     }
 
     #[derive(Object, Serialize, Default)]
@@ -650,6 +651,25 @@ impl WorkflowApi {
             return_err!("no permission");
         }
 
+        let process_args = if let Some(args) = req.process_args {
+            Some(logic::workflow::types::WorkflowProcessArgs {
+                default_target: args.default_target,
+                nodes: args.nodes.map_or(None, |v| {
+                    Some(
+                        v.into_iter()
+                            .map(|v| logic::workflow::types::WorkflowNodeArgs {
+                                node_id: v.node_id,
+                                target: v.target,
+                                args: v.args,
+                            })
+                            .collect(),
+                    )
+                }),
+            })
+        } else {
+            None
+        };
+
         let process_id = svc
             .workflow
             .start_process(
@@ -657,19 +677,7 @@ impl WorkflowApi {
                 req.workflow_id,
                 req.version_id,
                 req.process_name,
-                logic::workflow::types::WorkflowProcessArgs {
-                    default_target: req.process_args.default_target,
-                    nodes: req
-                        .process_args
-                        .nodes
-                        .into_iter()
-                        .map(|v| logic::workflow::types::WorkflowNodeArgs {
-                            node_id: v.node_id,
-                            target: v.target,
-                            args: v.args,
-                        })
-                        .collect(),
-                },
+                process_args,
             )
             .await?;
         return_ok!(types::StartProcessResp { process_id })
