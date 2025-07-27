@@ -1,7 +1,7 @@
 use redis_macros::{FromRedisValue, ToRedisArgs};
 use sea_orm::{FromQueryResult, prelude::DateTimeLocal};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display};
+use std::{clone, collections::HashMap, fmt::Display};
 #[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
 pub enum NodeType {
     #[default]
@@ -147,42 +147,42 @@ pub struct WorkflowVersionDetailModel {
     pub updated_time: DateTimeLocal,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 pub struct WorkflowJobArgs {
     pub name: String,
     pub val: String,
     pub node_assignment: Option<WorkflowJobArgsAssignment>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 pub struct WorkflowJobArgsAssignment {
     pub source_node_id: String,
     pub is_first_instance: bool,
     pub is_completed_result: bool,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 pub struct WorkflowNodeActualArgs {
     pub formal: Vec<WorkflowJobArgs>,
-    pub args: HashMap<String, serde_json::Value>,
+    pub args: serde_json::Value,
     pub code: String,
     pub target: Vec<String>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 pub struct WorkflowNodeArgs {
     pub node_id: String,
     pub target: Vec<String>,
     pub args: serde_json::Value,
 }
 
-#[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs)]
+#[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs, Clone)]
 pub struct WorkflowProcessArgs {
     pub default_target: Option<Vec<String>>,
     pub nodes: Option<Vec<WorkflowNodeArgs>>,
 }
 
-#[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs)]
+#[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs, Clone)]
 pub struct WorkflowNode {
     pub process_id: String,
     pub origin_nodes: Vec<NodeConfig>,
@@ -194,4 +194,21 @@ pub struct WorkflowNode {
     pub actual_args: Option<WorkflowNodeActualArgs>,
     pub reached_edge: Option<EdgeConfig>,
     pub current_node: NodeConfig,
+}
+
+impl WorkflowNode {
+    pub fn get_next_node(&self) -> Option<&NodeConfig> {
+        let Some(edge) = self.get_next_edge() else {
+            return None;
+        };
+        self.origin_nodes
+            .iter()
+            .find(|&v| v.id == edge.target_node_id)
+    }
+
+    pub fn get_next_edge(&self) -> Option<&EdgeConfig> {
+        self.origin_edges
+            .iter()
+            .find(|&v| v.source_node_id == self.current_node.id)
+    }
 }

@@ -375,11 +375,45 @@ impl<'a> WorkflowLogic<'a> {
         Ok(val)
     }
 
-    pub async fn process_node(&self, node: WorkflowNode) -> Result<()> {
-        let node = serde_json::to_string_pretty(&node)?;
+    pub async fn handle_start(&self, node: &WorkflowNode) -> Result<()> {
+        let mut next_node = node.to_owned();
+        next_node.reached_edge = Some(
+            node.get_next_edge()
+                .ok_or(anyhow!("not found next edge"))?
+                .to_owned(),
+        );
+        next_node.current_node = node
+            .get_next_node()
+            .ok_or(anyhow!("not found next node"))?
+            .to_owned();
 
-        println!("{node:?}");
-        todo!();
+        let _ = self.flow_next(next_node).await?;
+        Ok(())
+    }
+
+    pub async fn handle_service_task(&self, node: &WorkflowNode) -> Result<()> {
+        info!("{}", serde_json::to_string_pretty(&node)?);
+        Ok(())
+    }
+
+    pub async fn process_node(&self, mut node: WorkflowNode) -> Result<()> {
+        node.flow_depth += 1;
+
+        let ret = match node.current_node.node_type {
+            NodeType::StartEvent => self.handle_start(&node).await,
+            NodeType::ServiceTask => self.handle_service_task(&node).await,
+            NodeType::EndEvent => todo!(),
+            NodeType::ExclusiveGateway => todo!(),
+        };
+
+        if let Err(e) = ret {
+            error!(
+                "failed handle workflow node {e}, node: {:?}",
+                serde_json::to_string_pretty(&node).unwrap_or_default()
+            );
+        }
+
+        Ok(())
     }
 
     pub async fn start_process(
