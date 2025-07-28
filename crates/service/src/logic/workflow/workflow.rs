@@ -1,6 +1,7 @@
 use core::matches;
 use std::pin::Pin;
 
+use crate::IdGenerator;
 use crate::logic::types::UserInfo;
 use crate::logic::workflow::types::{
     self, CustomJob, NodeType, StandardJob, Task, TaskType, WorkflowNode, WorkflowProcessArgs,
@@ -11,7 +12,8 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use automate::bus::Msg;
-use entity::{team, workflow, workflow_process, workflow_version};
+use automate::scheduler::types::UploadFile;
+use entity::{executor, instance, job, team, workflow, workflow_process, workflow_version};
 use local_ip_address::local_ip;
 use redis::streams::{StreamMaxlen, StreamReadOptions, StreamReadReply};
 use redis::{AsyncCommands, from_redis_value};
@@ -22,7 +24,9 @@ use sea_orm::{
 };
 use sea_query::{Expr, any};
 use serde_json::json;
+use tokio::fs;
 use tracing::{debug, error, info, warn};
+use utils::file_name;
 
 use super::types::{EdgeConfig, NodeConfig};
 
@@ -391,8 +395,85 @@ impl<'a> WorkflowLogic<'a> {
         Ok(())
     }
 
+    pub async fn dispatch_job(
+        &self,
+        eid: String,
+        instance_ids: Vec<String>,
+        username: String,
+    ) -> Result<()> {
+        let endpoints = Instance::find()
+            .filter(instance::Column::InstanceId.is_in(instance_ids))
+            .all(&self.ctx.db)
+            .await?;
+        if endpoints.len() == 0 {
+            anyhow::bail!("cannot found valid instance");
+        }
+
+        let job_record = Job::find()
+            .filter(job::Column::Eid.eq(eid.clone()))
+            .filter(job::Column::IsDeleted.eq(false))
+            .one(&self.ctx.db)
+            .await?
+            .ok_or(anyhow!("cannot found job {}", eid))?;
+
+        let executor_record = Executor::find()
+            .filter(executor::Column::Id.eq(job_record.executor_id))
+            .one(&self.ctx.db)
+            .await?
+            .ok_or(anyhow!(
+                "cannot found executor {}",
+                job_record.executor_id.clone()
+            ))?;
+
+        let mut upload_file: Option<UploadFile> = None;
+
+        if job_record.upload_file != "" {
+            let data = fs::read(job_record.upload_file.clone()).await?;
+            upload_file = Some(UploadFile {
+                filename: file_name!(job_record.upload_file.clone()),
+                data: Some(data),
+            });
+        }
+
+        let command_slice: Vec<&str> = executor_record.command.split(" ").collect();
+
+        let dispatch_params = automate::DispatchJobParams {
+            base_job: automate::BaseJob {
+                eid: job_record.eid.clone(),
+                cmd_name: command_slice
+                    .get(0)
+                    .map_or("".to_string(), |&v| v.to_owned()),
+
+                code: job_record.code.clone(),
+                args: command_slice
+                    .get(1..)
+                    .map_or(vec![], |v| v.into_iter().map(|&v| v.to_owned()).collect()),
+                upload_file: upload_file.clone(),
+                work_dir: Some(job_record.work_dir.clone()).filter(|v| !v.is_empty()),
+                work_user: Some(job_record.work_user.clone()).filter(|v| !v.is_empty()),
+                timeout: job_record.timeout,
+                max_retry: Some(job_record.max_retry),
+                max_parallel: Some(job_record.max_parallel.into()),
+                read_code_from_stdin: false,
+                ..Default::default()
+            },
+            run_id: IdGenerator::get_run_id(),
+            instance_id: None,
+            fields: None,
+            restart_interval: None,
+            created_user: username,
+            schedule_id: IdGenerator::get_schedule_uid(),
+            timer_expr: None,
+            is_sync: false,
+            action: automate::JobAction::Exec,
+        };
+
+        Ok(())
+    }
+
     pub async fn handle_service_task(&self, node: &WorkflowNode) -> Result<()> {
         info!("{}", serde_json::to_string_pretty(&node)?);
+
         Ok(())
     }
 
@@ -449,7 +530,7 @@ impl<'a> WorkflowLogic<'a> {
             origin_nodes: nodes,
             origin_edges: edges,
             user_variables: json!({}),
-            process_args: None,
+            process_args: process_args.clone(),
             eval_val: false,
             flow_depth: 0,
             actual_args: None,
@@ -463,7 +544,7 @@ impl<'a> WorkflowLogic<'a> {
             process_name: Set(process_name),
             workflow_id: Set(workflow_id),
             version_id: Set(version_id),
-            process_args: NotSet,
+            process_args: Set(process_args.map(|v| serde_json::to_value(v)).transpose()?),
             process_status: NotSet,
             current_node: Set(curr_node_id),
             created_user: Set(user_info.username.clone()),

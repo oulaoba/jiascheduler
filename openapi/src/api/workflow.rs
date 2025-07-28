@@ -19,6 +19,8 @@ mod types {
     use service::logic;
     use std::{collections::HashMap, fmt::Display};
 
+    use crate::api::job;
+
     pub fn default_page() -> u64 {
         1
     }

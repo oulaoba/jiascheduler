@@ -23,13 +23,13 @@ use poem_openapi::{
 use sea_orm::{ActiveValue::NotSet, Set};
 use serde_json::json;
 use types::CompletedCallbackOpts;
-mod types {
+pub mod types {
     use std::collections::HashMap;
 
     use automate::scheduler::types;
     use poem_openapi::{Enum, Object};
 
-    use serde::Serialize;
+    use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
     use crate::logic;
@@ -217,7 +217,7 @@ mod types {
         pub list: Vec<RunRecord>,
     }
 
-    #[derive(Object, Serialize, Default)]
+    #[derive(Object, Serialize, Deserialize, Default)]
     pub struct Endpoint {
         pub instance_id: String,
     }
