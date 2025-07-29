@@ -2,6 +2,7 @@ use core::matches;
 use std::pin::Pin;
 
 use crate::IdGenerator;
+use crate::logic::job::types::{DispatchData, DispatchResult, DispatchTarget};
 use crate::logic::types::UserInfo;
 use crate::logic::workflow::types::{
     self, CustomJob, NodeType, StandardJob, Task, TaskType, WorkflowNode, WorkflowProcessArgs,
@@ -468,11 +469,142 @@ impl<'a> WorkflowLogic<'a> {
             action: automate::JobAction::Exec,
         };
 
+        let mut dispatch_data = DispatchData {
+            target: Vec::new(),
+            params: dispatch_params.clone(),
+        };
+
+        endpoints.into_iter().for_each(|v| {
+            dispatch_data.target.push(DispatchTarget {
+                ip: v.ip.clone(),
+                mac_addr: v.mac_addr.clone(),
+                namespace: v.namespace.clone(),
+                instance_id: v.instance_id.clone(),
+            });
+        });
+
+        let logic = automate::Logic::new(self.ctx.redis().clone());
+        let http_client = self.ctx.http_client.clone();
+        let secret = "".to_string();
+
+        let batch_push_ret = utils::async_batch_do(dispatch_data.target.clone(), move |v| {
+            let mut dispatch_params = dispatch_params.clone();
+            let logic = logic.clone();
+            let http_client = http_client.clone();
+            let secret = secret.clone();
+            dispatch_params.instance_id = Some(v.instance_id.clone());
+            Box::pin(async move {
+                let body = automate::DispatchJobRequest {
+                    agent_ip: v.ip.clone(),
+                    mac_addr: v.mac_addr.clone(),
+                    dispatch_params: dispatch_params.clone(),
+                };
+                let pair = match logic.get_link_pair(v.ip.clone(), v.mac_addr.clone()).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(DispatchResult {
+                            namespace: v.namespace.clone(),
+                            instance_id: v.instance_id.clone(),
+                            bind_ip: v.ip.clone(),
+                            response: json!(null),
+                            has_err: true,
+                            err: Some(e.to_string()),
+                        });
+                    }
+                };
+                let api_url = format!(
+                    "http://{}/dispatch?secret={}",
+                    pair.1.comet_addr,
+                    secret.clone()
+                );
+                let response = match http_client.post(api_url).json(&body).send().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(DispatchResult {
+                            namespace: v.namespace.clone(),
+                            bind_ip: v.ip.clone(),
+                            instance_id: v.instance_id.clone(),
+                            response: json!(null),
+                            has_err: true,
+                            err: Some(e.to_string()),
+                        });
+                    }
+                };
+
+                let response = match response.error_for_status() {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(DispatchResult {
+                            namespace: v.namespace.clone(),
+                            bind_ip: v.ip.clone(),
+                            instance_id: v.instance_id.clone(),
+                            response: json!(null),
+                            has_err: true,
+                            err: Some(e.to_string()),
+                        });
+                    }
+                };
+
+                let ret = match response.json::<serde_json::Value>().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(DispatchResult {
+                            namespace: v.namespace.clone(),
+                            bind_ip: v.ip.clone(),
+                            response: json!(null),
+                            instance_id: v.instance_id.clone(),
+                            has_err: true,
+                            err: Some(e.to_string()),
+                        });
+                    }
+                };
+
+                let (has_err, err) = if ret["code"] != 20000 {
+                    (true, Some(ret["msg"].to_string()))
+                } else {
+                    (false, None)
+                };
+
+                Ok(DispatchResult {
+                    namespace: v.namespace.clone(),
+                    bind_ip: v.ip.clone(),
+                    response: ret.clone(),
+                    instance_id: v.instance_id.clone(),
+                    has_err,
+                    err,
+                })
+            })
+        })
+        .await;
+
         Ok(())
     }
 
     pub async fn handle_service_task(&self, node: &WorkflowNode) -> Result<()> {
         info!("{}", serde_json::to_string_pretty(&node)?);
+
+        let Some(WorkflowProcessArgs {
+            default_target: Some(ref instance_ids),
+            ..
+        }) = node.process_args
+        else {
+            anyhow::bail!("invalid default target");
+        };
+
+        match node.current_node.task {
+            Task::Standard(ref standard_job) => {
+                self.dispatch_job(
+                    standard_job.eid.clone(),
+                    instance_ids.to_vec(),
+                    node.created_user.clone(),
+                )
+                .await?;
+            }
+            Task::Custom(ref custom_job) => todo!(),
+            Task::None => todo!(),
+        }
+
+        // self.dispatch_job(eid, instance_ids, username)
 
         Ok(())
     }
@@ -526,6 +658,7 @@ impl<'a> WorkflowLogic<'a> {
 
         let process_id = nanoid::nanoid!();
         self.flow_next(WorkflowNode {
+            created_user: user_info.user_id.clone(),
             process_id: process_id.clone(),
             origin_nodes: nodes,
             origin_edges: edges,

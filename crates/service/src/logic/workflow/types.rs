@@ -184,6 +184,7 @@ pub struct WorkflowProcessArgs {
 
 #[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs, Clone)]
 pub struct WorkflowNode {
+    pub created_user: String,
     pub process_id: String,
     pub origin_nodes: Vec<NodeConfig>,
     pub origin_edges: Vec<EdgeConfig>,

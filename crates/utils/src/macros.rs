@@ -12,7 +12,7 @@ macro_rules! local_time {
 #[macro_export]
 macro_rules! file_name {
     ($file:expr) => {
-        PathBuf::from($file)
+        std::path::PathBuf::from($file)
             .file_name()
             .unwrap()
             .to_str()
