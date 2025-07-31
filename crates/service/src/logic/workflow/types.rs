@@ -186,6 +186,7 @@ pub struct WorkflowProcessArgs {
 pub struct WorkflowNode {
     pub created_user: String,
     pub process_id: String,
+    pub run_id: String,
     pub origin_nodes: Vec<NodeConfig>,
     pub origin_edges: Vec<EdgeConfig>,
     pub user_variables: serde_json::Value,

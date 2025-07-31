@@ -401,6 +401,7 @@ impl<'a> WorkflowLogic<'a> {
 
     pub async fn dispatch_job(
         &self,
+        node: &WorkflowNode,
         eid: String,
         instance_ids: Vec<String>,
         username: String,
@@ -585,47 +586,21 @@ impl<'a> WorkflowLogic<'a> {
             .filter_map(|v| {
                 v.map_or(None, |v| {
                     Some(workflow_process_node_task::ActiveModel {
-                        process_id: todo!(),
-                        node_id: todo!(),
-                        run_id: todo!(),
-                        task_status: todo!(),
-                        bind_ip: todo!(),
-                        exit_code: todo!(),
-                        exit_status: todo!(),
-                        output: todo!(),
-                        restart_num: todo!(),
-                        dispatch_result: todo!(),
-                        created_user: todo!(),
-                        created_time: todo!(),
-                        updated_time: todo!(),
+                        process_id: Set(node.process_id.clone()),
+                        node_id: Set(node.current_node.id.clone()),
+                        run_id: Set(node.run_id.clone()),
+                        task_status: Set("prepare".to_string()),
+                        bind_ip: Set(v.bind_ip.clone()),
+                        created_user: Set(node.created_user.clone()),
                         ..Default::default()
                     })
                 })
             })
             .collect::<Vec<entity::workflow_process_node_task::ActiveModel>>();
 
-        // for v in batch_push_ret {
-        //     match v {
-        //         Ok(v) => WorkflowProcessNodeTask::insert(workflow_process_node_task::ActiveModel {
-        //             process_id: todo!(),
-        //             node_id: todo!(),
-        //             run_id: todo!(),
-        //             task_status: todo!(),
-        //             bind_ip: todo!(),
-        //             exit_code: todo!(),
-        //             exit_status: todo!(),
-        //             output: todo!(),
-        //             restart_num: todo!(),
-        //             dispatch_result: todo!(),
-        //             created_user: todo!(),
-        //             created_time: todo!(),
-        //             updated_time: todo!(),
-        //             ..Default::default()
-        //         })
-        //         .exec(&self.ctx.db),
-        //         Err(_) => todo!(),
-        //     };
-        // }
+        WorkflowProcessNodeTask::insert_many(data)
+            .exec(&self.ctx.db)
+            .await?;
 
         Ok(())
     }
@@ -644,6 +619,7 @@ impl<'a> WorkflowLogic<'a> {
         match node.current_node.task {
             Task::Standard(ref standard_job) => {
                 self.dispatch_job(
+                    node,
                     standard_job.eid.clone(),
                     instance_ids.to_vec(),
                     node.created_user.clone(),
@@ -653,8 +629,6 @@ impl<'a> WorkflowLogic<'a> {
             Task::Custom(ref custom_job) => todo!(),
             Task::None => todo!(),
         }
-
-        // self.dispatch_job(eid, instance_ids, username)
 
         Ok(())
     }
@@ -706,10 +680,12 @@ impl<'a> WorkflowLogic<'a> {
             .to_owned();
         let curr_node_id = start_node.id.clone();
 
-        let process_id = nanoid::nanoid!();
+        let (process_id, run_id) = (nanoid::nanoid!(), nanoid::nanoid!());
+
         self.flow_next(WorkflowNode {
             created_user: user_info.user_id.clone(),
             process_id: process_id.clone(),
+            run_id,
             origin_nodes: nodes,
             origin_edges: edges,
             user_variables: json!({}),
