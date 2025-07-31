@@ -49,9 +49,24 @@ CREATE TABLE `workflow_process` (
 CREATE TABLE `workflow_process_node` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
     `process_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT 'process id',
+    `run_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT 'run id',
     `node_name` varchar(100) NOT NULL DEFAULT '' COMMENT 'process node name',
     `node_id` varchar(100) NOT NULL DEFAULT '' COMMENT 'process node id',
     `node_status` varchar(100) NOT NULL DEFAULT 'start' COMMENT 'node status:start running, end',
+    `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'creator username',
+    `created_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+    `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+    PRIMARY KEY (`id`),
+    KEY `idx_process_id` (`process_id`, `node_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'workflow process node';
+
+CREATE TABLE `workflow_process_node_task` (
+    `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
+    `process_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT 'process id',
+    `run_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT 'run id',
+    `node_id` varchar(100) NOT NULL DEFAULT '' COMMENT 'process node id',
+    `task_status` varchar(100) NOT NULL DEFAULT 'start' COMMENT 'node status:start running, end',
+    `bind_instance_id` VARCHAR(40) NOT NULL DEFAULT '' COMMENT 'node bind instance id',
     `bind_ip` char(20) NOT NULL DEFAULT '' COMMENT 'node bind ip',
     `exit_code` tinyint NOT NULL DEFAULT '0' COMMENT 'exit code',
     `exit_status` varchar(200) NOT NULL DEFAULT '' COMMENT 'exit status',
@@ -63,7 +78,7 @@ CREATE TABLE `workflow_process_node` (
     `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
     PRIMARY KEY (`id`),
     KEY `idx_process_id` (`process_id`, `node_id`)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'workflow process node';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'workflow process node task';
 
 CREATE TABLE `workflow_process_edge` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',

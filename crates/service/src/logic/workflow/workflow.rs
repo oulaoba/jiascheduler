@@ -14,7 +14,10 @@ use crate::{
 use anyhow::{Result, anyhow};
 use automate::bus::Msg;
 use automate::scheduler::types::UploadFile;
-use entity::{executor, instance, job, team, workflow, workflow_process, workflow_version};
+use entity::{
+    executor, instance, job, team, workflow, workflow_process, workflow_process_node_task,
+    workflow_version,
+};
 use local_ip_address::local_ip;
 use redis::streams::{StreamMaxlen, StreamReadOptions, StreamReadReply};
 use redis::{AsyncCommands, from_redis_value};
@@ -576,6 +579,53 @@ impl<'a> WorkflowLogic<'a> {
             })
         })
         .await;
+
+        let data = batch_push_ret
+            .into_iter()
+            .filter_map(|v| {
+                v.map_or(None, |v| {
+                    Some(workflow_process_node_task::ActiveModel {
+                        process_id: todo!(),
+                        node_id: todo!(),
+                        run_id: todo!(),
+                        task_status: todo!(),
+                        bind_ip: todo!(),
+                        exit_code: todo!(),
+                        exit_status: todo!(),
+                        output: todo!(),
+                        restart_num: todo!(),
+                        dispatch_result: todo!(),
+                        created_user: todo!(),
+                        created_time: todo!(),
+                        updated_time: todo!(),
+                        ..Default::default()
+                    })
+                })
+            })
+            .collect::<Vec<entity::workflow_process_node_task::ActiveModel>>();
+
+        // for v in batch_push_ret {
+        //     match v {
+        //         Ok(v) => WorkflowProcessNodeTask::insert(workflow_process_node_task::ActiveModel {
+        //             process_id: todo!(),
+        //             node_id: todo!(),
+        //             run_id: todo!(),
+        //             task_status: todo!(),
+        //             bind_ip: todo!(),
+        //             exit_code: todo!(),
+        //             exit_status: todo!(),
+        //             output: todo!(),
+        //             restart_num: todo!(),
+        //             dispatch_result: todo!(),
+        //             created_user: todo!(),
+        //             created_time: todo!(),
+        //             updated_time: todo!(),
+        //             ..Default::default()
+        //         })
+        //         .exec(&self.ctx.db),
+        //         Err(_) => todo!(),
+        //     };
+        // }
 
         Ok(())
     }
