@@ -476,6 +476,7 @@ impl<'a> JobLogic<'a> {
                 max_retry: Some(job_record.max_retry),
                 max_parallel: Some(job_record.max_parallel.into()),
                 read_code_from_stdin: false,
+                is_workflow: false,
             },
             run_id: IdGenerator::get_run_id(),
             instance_id: None,

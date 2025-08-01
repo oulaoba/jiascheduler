@@ -1,3 +1,4 @@
+use anyhow::{Result, anyhow};
 use redis_macros::{FromRedisValue, ToRedisArgs};
 use sea_orm::{FromQueryResult, prelude::DateTimeLocal};
 use serde::{Deserialize, Serialize};
@@ -212,5 +213,35 @@ impl WorkflowNode {
         self.origin_edges
             .iter()
             .find(|&v| v.source_node_id == self.current_node.id)
+    }
+
+    pub fn get_next_edges(&self) -> Vec<&EdgeConfig> {
+        self.origin_edges
+            .iter()
+            .filter(|&v| v.source_node_id == self.current_node.id)
+            .collect::<Vec<&EdgeConfig>>()
+    }
+
+    pub fn get_next_node_by_edge(&self, edge: &EdgeConfig) -> Option<&NodeConfig> {
+        self.origin_nodes
+            .iter()
+            .find(|&v| v.id == edge.target_node_id)
+    }
+
+    pub fn get_next_nodes(&self) -> Result<Vec<(&EdgeConfig, &NodeConfig)>> {
+        let next_edges = self.get_next_edges();
+
+        let data = next_edges
+            .into_iter()
+            .map::<Result<(&EdgeConfig, &NodeConfig)>, _>(|edge| {
+                let next_nodes = self.get_next_node_by_edge(edge);
+                let data = next_nodes.map_or(Err(anyhow!("cannot found next edge")), |node| {
+                    Ok((edge, node))
+                });
+                data
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(data)
     }
 }

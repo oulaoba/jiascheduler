@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use automate::{
-    bridge::msg::{AgentOfflineParams, AgentOnlineParams, HeartbeatParams},
+    bridge::msg::{AgentOfflineParams, AgentOnlineParams, HeartbeatParams, UpdateJobParams},
     bus::{Bus, Msg},
 };
 
@@ -118,6 +118,16 @@ pub async fn instance_health_check(state: AppState) {
     });
 }
 
+pub async fn update_job_status(state: AppState, v: UpdateJobParams) -> Result<()> {
+    let svc = state.service();
+    if v.base_job.is_workflow {
+        svc.workflow.update_node_status(v).await?;
+    } else {
+        svc.job.update_job_status(v).await?;
+    };
+    Ok(())
+}
+
 pub async fn start(state: AppState) -> Result<()> {
     let bus = Bus::new(state.redis().clone());
 
@@ -133,7 +143,7 @@ pub async fn start(state: AppState) -> Result<()> {
                     Box::pin(async move {
                         match msg {
                             Msg::UpdateJob(v) => {
-                                let _ = state.service().job.update_job_status(v).await?;
+                                let _ = update_job_status(state.clone(), v).await?;
                             }
                             Msg::Heartbeat(v) => {
                                 let _ = heartbeat(state.clone(), v).await?;

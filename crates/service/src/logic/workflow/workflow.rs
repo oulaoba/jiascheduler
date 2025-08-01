@@ -12,8 +12,9 @@ use crate::{
     state::AppContext,
 };
 use anyhow::{Result, anyhow};
+use automate::bridge::msg::UpdateJobParams;
 use automate::bus::Msg;
-use automate::scheduler::types::UploadFile;
+use automate::scheduler::types::{RunStatus, UploadFile};
 use entity::{
     executor, instance, job, team, workflow, workflow_process, workflow_process_node_task,
     workflow_version,
@@ -23,8 +24,8 @@ use redis::streams::{StreamMaxlen, StreamReadOptions, StreamReadReply};
 use redis::{AsyncCommands, from_redis_value};
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect, QueryTrait,
+    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, JoinType, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait,
 };
 use sea_query::{Expr, any};
 use serde_json::json;
@@ -378,24 +379,218 @@ impl<'a> WorkflowLogic<'a> {
         Ok(v)
     }
 
-    pub async fn flow_next(&self, node: WorkflowNode) -> Result<String> {
+    pub async fn flow_next(&self, prev: Option<&NodeConfig>, node: WorkflowNode) -> Result<String> {
         let val = self.send_msg(&[("workflow", node)]).await?;
         Ok(val)
     }
 
     pub async fn handle_start(&self, node: &WorkflowNode) -> Result<()> {
-        let mut next_node = node.to_owned();
-        next_node.reached_edge = Some(
-            node.get_next_edge()
-                .ok_or(anyhow!("not found next edge"))?
-                .to_owned(),
-        );
-        next_node.current_node = node
-            .get_next_node()
-            .ok_or(anyhow!("not found next node"))?
-            .to_owned();
+        let next_point = node.get_next_nodes()?;
 
-        let _ = self.flow_next(next_node).await?;
+        for point in next_point {
+            let mut next_node = node.clone();
+            next_node.reached_edge = Some(point.0.clone());
+            next_node.current_node = point.1.clone();
+            let _ = self.flow_next(Some(&node.current_node), next_node).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn dispatch_custom_job(
+        &self,
+        node: &WorkflowNode,
+        custom_job: &CustomJob,
+        instance_ids: Vec<String>,
+    ) -> Result<()> {
+        let endpoints = Instance::find()
+            .filter(instance::Column::InstanceId.is_in(instance_ids))
+            .all(&self.ctx.db)
+            .await?;
+        if endpoints.len() == 0 {
+            anyhow::bail!("cannot found valid instance");
+        }
+
+        let executor_record = Executor::find()
+            .filter(executor::Column::Id.eq(custom_job.executor_id))
+            .one(&self.ctx.db)
+            .await?
+            .ok_or(anyhow!(
+                "cannot found executor {}",
+                custom_job.executor_id.clone()
+            ))?;
+
+        let command_slice: Vec<&str> = executor_record.command.split(" ").collect();
+
+        let upload_file: Option<UploadFile> =
+            if let Some(uploadfile) = custom_job.upload_file.clone() {
+                let data = fs::read(uploadfile.clone()).await?;
+                Some(UploadFile {
+                    filename: file_name!(uploadfile),
+                    data: Some(data),
+                })
+            } else {
+                None
+            };
+
+        let dispatch_params = automate::DispatchJobParams {
+            base_job: automate::BaseJob {
+                eid: node.current_node.id.clone(),
+                cmd_name: command_slice
+                    .get(0)
+                    .map_or("".to_string(), |&v| v.to_owned()),
+                code: custom_job.code.clone(),
+                args: command_slice
+                    .get(1..)
+                    .map_or(vec![], |v| v.into_iter().map(|&v| v.to_owned()).collect()),
+                upload_file: upload_file.clone(),
+                timeout: 60,
+                max_retry: Some(1),
+                max_parallel: Some(1),
+                read_code_from_stdin: false,
+                is_workflow: true,
+                ..Default::default()
+            },
+            run_id: node.run_id.clone(),
+            instance_id: None,
+            fields: Some(json!({"is_workflow":true})),
+            restart_interval: None,
+            created_user: node.created_user.clone(),
+            schedule_id: node.process_id.clone(),
+            timer_expr: None,
+            is_sync: false,
+            action: automate::JobAction::Exec,
+        };
+
+        let mut dispatch_data = DispatchData {
+            target: Vec::new(),
+            params: dispatch_params.clone(),
+        };
+
+        endpoints.into_iter().for_each(|v| {
+            dispatch_data.target.push(DispatchTarget {
+                ip: v.ip.clone(),
+                mac_addr: v.mac_addr.clone(),
+                namespace: v.namespace.clone(),
+                instance_id: v.instance_id.clone(),
+            });
+        });
+
+        let logic = automate::Logic::new(self.ctx.redis().clone());
+        let http_client = self.ctx.http_client.clone();
+        let secret = "".to_string();
+
+        let batch_push_ret = utils::async_batch_do(dispatch_data.target.clone(), move |v| {
+            let mut dispatch_params = dispatch_params.clone();
+            let logic = logic.clone();
+            let http_client = http_client.clone();
+            let secret = secret.clone();
+            dispatch_params.instance_id = Some(v.instance_id.clone());
+            Box::pin(async move {
+                let body = automate::DispatchJobRequest {
+                    agent_ip: v.ip.clone(),
+                    mac_addr: v.mac_addr.clone(),
+                    dispatch_params: dispatch_params.clone(),
+                };
+                let pair = match logic.get_link_pair(v.ip.clone(), v.mac_addr.clone()).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(DispatchResult {
+                            namespace: v.namespace.clone(),
+                            instance_id: v.instance_id.clone(),
+                            bind_ip: v.ip.clone(),
+                            response: json!(null),
+                            has_err: true,
+                            err: Some(e.to_string()),
+                        });
+                    }
+                };
+                let api_url = format!(
+                    "http://{}/dispatch?secret={}",
+                    pair.1.comet_addr,
+                    secret.clone()
+                );
+                let response = match http_client.post(api_url).json(&body).send().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(DispatchResult {
+                            namespace: v.namespace.clone(),
+                            bind_ip: v.ip.clone(),
+                            instance_id: v.instance_id.clone(),
+                            response: json!(null),
+                            has_err: true,
+                            err: Some(e.to_string()),
+                        });
+                    }
+                };
+
+                let response = match response.error_for_status() {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(DispatchResult {
+                            namespace: v.namespace.clone(),
+                            bind_ip: v.ip.clone(),
+                            instance_id: v.instance_id.clone(),
+                            response: json!(null),
+                            has_err: true,
+                            err: Some(e.to_string()),
+                        });
+                    }
+                };
+
+                let ret = match response.json::<serde_json::Value>().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return Ok(DispatchResult {
+                            namespace: v.namespace.clone(),
+                            bind_ip: v.ip.clone(),
+                            response: json!(null),
+                            instance_id: v.instance_id.clone(),
+                            has_err: true,
+                            err: Some(e.to_string()),
+                        });
+                    }
+                };
+
+                let (has_err, err) = if ret["code"] != 20000 {
+                    (true, Some(ret["msg"].to_string()))
+                } else {
+                    (false, None)
+                };
+
+                Ok(DispatchResult {
+                    namespace: v.namespace.clone(),
+                    bind_ip: v.ip.clone(),
+                    response: ret.clone(),
+                    instance_id: v.instance_id.clone(),
+                    has_err,
+                    err,
+                })
+            })
+        })
+        .await;
+
+        let data = batch_push_ret
+            .into_iter()
+            .filter_map(|v| {
+                v.map_or(None, |v| {
+                    Some(workflow_process_node_task::ActiveModel {
+                        process_id: Set(node.process_id.clone()),
+                        node_id: Set(node.current_node.id.clone()),
+                        run_id: Set(node.run_id.clone()),
+                        task_status: Set("prepare".to_string()),
+                        bind_ip: Set(v.bind_ip.clone()),
+                        created_user: Set(node.created_user.clone()),
+                        ..Default::default()
+                    })
+                })
+            })
+            .collect::<Vec<entity::workflow_process_node_task::ActiveModel>>();
+
+        WorkflowProcessNodeTask::insert_many(data)
+            .exec(&self.ctx.db)
+            .await?;
+
         Ok(())
     }
 
@@ -404,7 +599,6 @@ impl<'a> WorkflowLogic<'a> {
         node: &WorkflowNode,
         eid: String,
         instance_ids: Vec<String>,
-        username: String,
     ) -> Result<()> {
         let endpoints = Instance::find()
             .filter(instance::Column::InstanceId.is_in(instance_ids))
@@ -460,13 +654,16 @@ impl<'a> WorkflowLogic<'a> {
                 max_retry: Some(job_record.max_retry),
                 max_parallel: Some(job_record.max_parallel.into()),
                 read_code_from_stdin: false,
+                is_workflow: true,
                 ..Default::default()
             },
             run_id: IdGenerator::get_run_id(),
             instance_id: None,
-            fields: None,
+            fields: Some(json!({
+                "workflow_node": serde_json::to_value(node)?
+            })),
             restart_interval: None,
-            created_user: username,
+            created_user: node.created_user.clone(),
             schedule_id: IdGenerator::get_schedule_uid(),
             timer_expr: None,
             is_sync: false,
@@ -618,19 +815,21 @@ impl<'a> WorkflowLogic<'a> {
 
         match node.current_node.task {
             Task::Standard(ref standard_job) => {
-                self.dispatch_job(
-                    node,
-                    standard_job.eid.clone(),
-                    instance_ids.to_vec(),
-                    node.created_user.clone(),
-                )
-                .await?;
+                self.dispatch_job(node, standard_job.eid.clone(), instance_ids.to_vec())
+                    .await?;
             }
-            Task::Custom(ref custom_job) => todo!(),
+            Task::Custom(ref custom_job) => {
+                self.dispatch_custom_job(node, custom_job, instance_ids.to_vec())
+                    .await?
+            }
             Task::None => todo!(),
         }
 
         Ok(())
+    }
+
+    pub async fn is_ready(&self, node: &WorkflowNode) -> bool {
+        true
     }
 
     pub async fn process_node(&self, mut node: WorkflowNode) -> Result<()> {
@@ -650,6 +849,75 @@ impl<'a> WorkflowLogic<'a> {
             );
         }
 
+        Ok(())
+    }
+
+    pub async fn update_node_status(&self, params: UpdateJobParams) -> Result<()> {
+        let process_id = params.schedule_id;
+        let run_id = params.run_id;
+        let node_id = params.base_job.eid;
+        let bind_ip = params.bind_ip;
+
+        let output = params.stdout.unwrap_or_default();
+        let output = params
+            .stderr
+            .map_or(output.clone(), |v| format!("{v}\n{output}"));
+
+        let Some(run_status) = params.run_status else {
+            anyhow::bail!(
+                "none run status, process_id:{}, node_id:{}, run_id:{}",
+                process_id,
+                node_id,
+                run_id,
+            );
+        };
+
+        let mut cond = workflow_process_node_task::Column::ProcessId
+            .eq(&process_id)
+            .and(workflow_process_node_task::Column::NodeId.eq(&node_id))
+            .and(workflow_process_node_task::Column::BindIp.eq(&bind_ip));
+
+        if run_status == RunStatus::Running {
+            cond = cond.and(
+                workflow_process_node_task::Column::TaskStatus.eq(RunStatus::Prepare.to_string()),
+            );
+        }
+
+        WorkflowProcessNodeTask::update(workflow_process_node_task::ActiveModel {
+            task_status: Set(run_status.to_string()),
+            exit_code: params.exit_code.map_or(NotSet, |v| Set(v.into())),
+            exit_status: params.exit_status.map_or(NotSet, |v| Set(v)),
+            output: Set(output),
+            ..Default::default()
+        })
+        .filter(cond)
+        .exec(&self.ctx.db)
+        .await?;
+
+        let not_ok = WorkflowProcessNodeTask::find()
+            .filter(workflow_process_node_task::Column::ProcessId.eq(&process_id))
+            .filter(workflow_process_node_task::Column::NodeId.eq(&node_id))
+            .filter(workflow_process_node_task::Column::TaskStatus.ne(RunStatus::Stop.to_string()))
+            .one(&self.ctx.db)
+            .await?;
+        if not_ok.is_none() {
+            let Some(fields) = params.fields else {
+                anyhow::bail!("fields is none");
+            };
+
+            let current_node =
+                serde_json::from_value::<WorkflowNode>(fields["workflow_node"].clone())?;
+
+            let next_point = current_node.get_next_nodes()?;
+
+            for point in next_point {
+                let mut next_node = current_node.clone();
+                next_node.reached_edge = Some(point.0.to_owned());
+                next_node.current_node = point.1.to_owned();
+                self.flow_next(Some(&current_node.current_node), next_node)
+                    .await?;
+            }
+        }
         Ok(())
     }
 
@@ -682,20 +950,23 @@ impl<'a> WorkflowLogic<'a> {
 
         let (process_id, run_id) = (nanoid::nanoid!(), nanoid::nanoid!());
 
-        self.flow_next(WorkflowNode {
-            created_user: user_info.user_id.clone(),
-            process_id: process_id.clone(),
-            run_id,
-            origin_nodes: nodes,
-            origin_edges: edges,
-            user_variables: json!({}),
-            process_args: process_args.clone(),
-            eval_val: false,
-            flow_depth: 0,
-            actual_args: None,
-            reached_edge: None,
-            current_node: start_node,
-        })
+        self.flow_next(
+            None,
+            WorkflowNode {
+                created_user: user_info.user_id.clone(),
+                process_id: process_id.clone(),
+                run_id,
+                origin_nodes: nodes,
+                origin_edges: edges,
+                user_variables: json!({}),
+                process_args: process_args.clone(),
+                eval_val: false,
+                flow_depth: 0,
+                actual_args: None,
+                reached_edge: None,
+                current_node: start_node,
+            },
+        )
         .await?;
 
         WorkflowProcess::insert(workflow_process::ActiveModel {

@@ -559,6 +559,7 @@ impl
                 schedule_id: schedule_id.clone(),
                 next_time,
                 prev_time,
+                fields: job_params.fields.clone(),
                 bind_namespace: react.namespace.clone(),
                 bind_ip: react.local_ip.clone(),
                 schedule_type: schedule_type.clone(),
@@ -583,6 +584,7 @@ impl
                         base_job: base_job.to_pure_job(),
                         run_status: Some(types::RunStatus::Stop),
                         schedule_id: schedule_id.clone(),
+                        fields: job_params.fields.clone(),
                         exit_status: Some(e.to_string()),
                         exit_code: Some(99),
                         bind_namespace: react.namespace.clone(),
@@ -607,6 +609,7 @@ impl
             .send_update_job_msg(UpdateJobParams {
                 base_job: base_job.to_pure_job(),
                 run_status: Some(types::RunStatus::Stop),
+                fields: job_params.fields.clone(),
                 schedule_id: schedule_id.clone(),
                 exit_status: output.get_exit_status(),
                 exit_code: output.get_exit_code(),

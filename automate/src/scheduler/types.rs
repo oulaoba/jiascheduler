@@ -122,6 +122,7 @@ pub struct BaseJob {
     pub work_user: Option<String>,
     pub max_retry: Option<u8>,
     pub max_parallel: Option<u32>,
+    pub is_workflow: bool,
 }
 
 impl BaseJob {
@@ -140,6 +141,7 @@ impl BaseJob {
             work_user: self.work_user.clone(),
             max_retry: self.max_retry,
             max_parallel: self.max_parallel,
+            is_workflow: self.is_workflow,
         }
     }
 }
