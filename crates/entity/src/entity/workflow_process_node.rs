@@ -11,7 +11,6 @@ pub struct Model {
     pub process_id: String,
     pub run_id: String,
     pub node_id: String,
-    pub node_name: String,
     pub node_status: String,
     pub created_user: String,
     pub created_time: DateTimeLocal,

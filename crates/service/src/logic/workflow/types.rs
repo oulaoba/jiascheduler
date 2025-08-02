@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use redis_macros::{FromRedisValue, ToRedisArgs};
 use sea_orm::{FromQueryResult, prelude::DateTimeLocal};
 use serde::{Deserialize, Serialize};
-use std::{clone, collections::HashMap, fmt::Display};
+use std::fmt::Display;
 #[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
 pub enum NodeType {
     #[default]
@@ -80,6 +80,27 @@ impl TryFrom<&str> for TaskType {
             "custom" => Ok(TaskType::Custom),
             "none" => Ok(TaskType::None),
             _ => Err(anyhow::anyhow!("Invalid task type")),
+        }
+    }
+}
+
+#[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
+pub enum NodeStatus {
+    #[serde(rename = "prepare")]
+    #[default]
+    Prepare,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "end")]
+    End,
+}
+
+impl Display for NodeStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeStatus::Prepare => write!(f, "prepare"),
+            NodeStatus::Running => write!(f, "running"),
+            NodeStatus::End => write!(f, "end"),
         }
     }
 }
@@ -219,6 +240,13 @@ impl WorkflowNode {
         self.origin_edges
             .iter()
             .filter(|&v| v.source_node_id == self.current_node.id)
+            .collect::<Vec<&EdgeConfig>>()
+    }
+
+    pub fn get_prev_edges(&self) -> Vec<&EdgeConfig> {
+        self.origin_edges
+            .iter()
+            .filter(|&v| v.target_node_id == self.current_node.id)
             .collect::<Vec<&EdgeConfig>>()
     }
 

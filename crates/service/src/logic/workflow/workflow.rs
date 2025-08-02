@@ -5,7 +5,8 @@ use crate::IdGenerator;
 use crate::logic::job::types::{DispatchData, DispatchResult, DispatchTarget};
 use crate::logic::types::UserInfo;
 use crate::logic::workflow::types::{
-    self, CustomJob, NodeType, StandardJob, Task, TaskType, WorkflowNode, WorkflowProcessArgs,
+    self, CustomJob, NodeStatus, NodeType, StandardJob, Task, TaskType, WorkflowNode,
+    WorkflowProcessArgs,
 };
 use crate::{
     entity::{prelude::*, team_member},
@@ -13,21 +14,21 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use automate::bridge::msg::UpdateJobParams;
-use automate::bus::Msg;
 use automate::scheduler::types::{RunStatus, UploadFile};
 use entity::{
-    executor, instance, job, team, workflow, workflow_process, workflow_process_node_task,
-    workflow_version,
+    executor, instance, job, team, workflow, workflow_process, workflow_process_edge,
+    workflow_process_node, workflow_process_node_task, workflow_version,
 };
 use local_ip_address::local_ip;
 use redis::streams::{StreamMaxlen, StreamReadOptions, StreamReadReply};
 use redis::{AsyncCommands, from_redis_value};
+use russh_sftp::de;
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, JoinType, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, QueryTrait,
+    ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, QueryTrait,
 };
-use sea_query::{Expr, any};
+use sea_query::Expr;
 use serde_json::json;
 use tokio::fs;
 use tracing::{debug, error, info, warn};
@@ -379,19 +380,19 @@ impl<'a> WorkflowLogic<'a> {
         Ok(v)
     }
 
-    pub async fn flow_next(&self, prev: Option<&NodeConfig>, node: WorkflowNode) -> Result<String> {
+    pub async fn flow_next(&self, node: WorkflowNode) -> Result<String> {
         let val = self.send_msg(&[("workflow", node)]).await?;
         Ok(val)
     }
 
-    pub async fn handle_start(&self, node: &WorkflowNode) -> Result<()> {
+    pub async fn handle_start_event(&self, node: &WorkflowNode) -> Result<()> {
         let next_point = node.get_next_nodes()?;
 
         for point in next_point {
             let mut next_node = node.clone();
             next_node.reached_edge = Some(point.0.clone());
             next_node.current_node = point.1.clone();
-            let _ = self.flow_next(Some(&node.current_node), next_node).await?;
+            let _ = self.flow_next(next_node).await?;
         }
 
         Ok(())
@@ -828,15 +829,71 @@ impl<'a> WorkflowLogic<'a> {
         Ok(())
     }
 
-    pub async fn is_ready(&self, node: &WorkflowNode) -> bool {
-        true
+    pub async fn is_ready(&self, node: &WorkflowNode) -> Result<bool> {
+        if let Some(ref reached_edge) = node.reached_edge {
+            // Todo: check edge condition
+
+            WorkflowProcessEdge::insert(workflow_process_edge::ActiveModel {
+                process_id: Set(node.process_id.to_string()),
+                run_id: Set(node.run_id.to_string()),
+                edge_id: Set(reached_edge.id.to_string()),
+                props: Set(Some(serde_json::to_value(reached_edge)?)),
+                source_node_id: Set(reached_edge.source_node_id.to_string()),
+                target_node_id: Set(reached_edge.target_node_id.to_string()),
+                created_user: Set(node.created_user.to_string()),
+                ..Default::default()
+            })
+            .exec(&self.ctx.db)
+            .await?;
+        }
+
+        let prev_edges = node.get_prev_edges();
+
+        let ready_edges = WorkflowProcessEdge::find()
+            .filter(workflow_process_edge::Column::ProcessId.eq(node.process_id.clone()))
+            .filter(workflow_process_edge::Column::TargetNodeId.eq(node.current_node.id.clone()))
+            .filter(workflow_process_node::Column::RunId.eq(node.run_id.clone()))
+            .all(&self.ctx.db)
+            .await?;
+
+        let is_ready = prev_edges
+            .iter()
+            .all(|&v1| ready_edges.iter().any(|v2| v2.edge_id == v1.id));
+
+        if is_ready {
+            WorkflowProcess::update(workflow_process::ActiveModel {
+                current_node_id: Set(node.current_node.id.to_string()),
+                current_node_status: Set(NodeStatus::Running.to_string()),
+                current_run_id: Set(node.run_id.to_string()),
+                ..Default::default()
+            })
+            .exec(&self.ctx.db)
+            .await?;
+
+            WorkflowProcessNode::insert(workflow_process_node::ActiveModel {
+                process_id: Set(node.process_id.to_string()),
+                run_id: Set(node.run_id.to_string()),
+                node_id: Set(node.current_node.id.to_string()),
+                node_status: Set(NodeStatus::Running.to_string()),
+                created_user: Set(node.created_user.to_string()),
+                ..Default::default()
+            })
+            .exec(&self.ctx.db)
+            .await?;
+        }
+
+        Ok(is_ready)
     }
 
     pub async fn process_node(&self, mut node: WorkflowNode) -> Result<()> {
         node.flow_depth += 1;
 
+        if !self.is_ready(&node).await? {
+            return Ok(());
+        }
+
         let ret = match node.current_node.node_type {
-            NodeType::StartEvent => self.handle_start(&node).await,
+            NodeType::StartEvent => self.handle_start_event(&node).await,
             NodeType::ServiceTask => self.handle_service_task(&node).await,
             NodeType::EndEvent => todo!(),
             NodeType::ExclusiveGateway => todo!(),
@@ -901,6 +958,26 @@ impl<'a> WorkflowLogic<'a> {
             .one(&self.ctx.db)
             .await?;
         if not_ok.is_none() {
+            WorkflowProcessNode::update(workflow_process_node::ActiveModel {
+                node_status: Set(NodeStatus::End.to_string()),
+                ..Default::default()
+            })
+            .filter(workflow_process_node::Column::ProcessId.eq(&process_id))
+            .filter(workflow_process_node::Column::NodeId.eq(&node_id))
+            .filter(workflow_process_node::Column::RunId.eq(&run_id))
+            .exec(&self.ctx.db)
+            .await?;
+
+            WorkflowProcess::update(workflow_process::ActiveModel {
+                current_node_id: Set(node_id.to_string()),
+                current_node_status: Set(NodeStatus::End.to_string()),
+                current_run_id: Set(run_id.to_string()),
+                ..Default::default()
+            })
+            .filter(workflow_process::Column::ProcessId.eq(&process_id))
+            .exec(&self.ctx.db)
+            .await?;
+
             let Some(fields) = params.fields else {
                 anyhow::bail!("fields is none");
             };
@@ -914,8 +991,7 @@ impl<'a> WorkflowLogic<'a> {
                 let mut next_node = current_node.clone();
                 next_node.reached_edge = Some(point.0.to_owned());
                 next_node.current_node = point.1.to_owned();
-                self.flow_next(Some(&current_node.current_node), next_node)
-                    .await?;
+                self.flow_next(next_node).await?;
             }
         }
         Ok(())
@@ -950,23 +1026,20 @@ impl<'a> WorkflowLogic<'a> {
 
         let (process_id, run_id) = (nanoid::nanoid!(), nanoid::nanoid!());
 
-        self.flow_next(
-            None,
-            WorkflowNode {
-                created_user: user_info.user_id.clone(),
-                process_id: process_id.clone(),
-                run_id,
-                origin_nodes: nodes,
-                origin_edges: edges,
-                user_variables: json!({}),
-                process_args: process_args.clone(),
-                eval_val: false,
-                flow_depth: 0,
-                actual_args: None,
-                reached_edge: None,
-                current_node: start_node,
-            },
-        )
+        self.flow_next(WorkflowNode {
+            created_user: user_info.user_id.clone(),
+            process_id: process_id.clone(),
+            run_id,
+            origin_nodes: nodes,
+            origin_edges: edges,
+            user_variables: json!({}),
+            process_args: process_args.clone(),
+            eval_val: false,
+            flow_depth: 0,
+            actual_args: None,
+            reached_edge: None,
+            current_node: start_node,
+        })
         .await?;
 
         WorkflowProcess::insert(workflow_process::ActiveModel {
@@ -976,7 +1049,8 @@ impl<'a> WorkflowLogic<'a> {
             version_id: Set(version_id),
             process_args: Set(process_args.map(|v| serde_json::to_value(v)).transpose()?),
             process_status: NotSet,
-            current_node: Set(curr_node_id),
+            current_node_id: Set(curr_node_id),
+            current_node_status: Set(NodeStatus::Prepare.to_string()),
             created_user: Set(user_info.username.clone()),
             ..Default::default()
         })
