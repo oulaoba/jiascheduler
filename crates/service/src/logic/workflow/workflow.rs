@@ -5,8 +5,8 @@ use crate::IdGenerator;
 use crate::logic::job::types::{DispatchData, DispatchResult, DispatchTarget};
 use crate::logic::types::UserInfo;
 use crate::logic::workflow::types::{
-    self, CustomJob, NodeStatus, NodeType, StandardJob, Task, TaskType, WorkflowNode,
-    WorkflowProcessArgs,
+    self, CustomJob, NodeStatus, NodeType, ProcessStatus, StandardJob, Task, TaskType,
+    WorkflowNode, WorkflowProcessArgs,
 };
 use crate::{
     entity::{prelude::*, team_member},
@@ -887,7 +887,33 @@ impl<'a> WorkflowLogic<'a> {
 
     pub async fn handle_exclusive_gateway(&self, node: &WorkflowNode) -> Result<()> {
         let next_edges = node.get_next_edges();
+        for edge in next_edges {
+            for v in &edge.conditions {}
+        }
         todo!();
+    }
+
+    pub async fn handle_end_event(&self, node: &WorkflowNode) -> Result<()> {
+        // update node status
+        WorkflowProcessNode::update(workflow_process_node::ActiveModel {
+            node_status: Set(NodeStatus::End.to_string()),
+            ..Default::default()
+        })
+        .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
+        .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
+        .exec(&self.ctx.db)
+        .await?;
+
+        // update process status
+        WorkflowProcess::update(workflow_process::ActiveModel {
+            process_status: Set(ProcessStatus::End.to_string()),
+            ..Default::default()
+        })
+        .filter(workflow_process::Column::ProcessId.eq(&node.process_id))
+        .exec(&self.ctx.db)
+        .await?;
+
+        Ok(())
     }
 
     pub async fn process_node(&self, mut node: WorkflowNode) -> Result<()> {
@@ -900,8 +926,8 @@ impl<'a> WorkflowLogic<'a> {
         let ret = match node.current_node.node_type {
             NodeType::StartEvent => self.handle_start_event(&node).await,
             NodeType::ServiceTask => self.handle_service_task(&node).await,
-            NodeType::EndEvent => todo!(),
-            NodeType::ExclusiveGateway => todo!(),
+            NodeType::EndEvent => self.handle_end_event(&node).await,
+            NodeType::ExclusiveGateway => self.handle_exclusive_gateway(&node).await,
         };
 
         if let Err(e) = ret {
@@ -1053,7 +1079,7 @@ impl<'a> WorkflowLogic<'a> {
             workflow_id: Set(workflow_id),
             version_id: Set(version_id),
             process_args: Set(process_args.map(|v| serde_json::to_value(v)).transpose()?),
-            process_status: NotSet,
+            process_status: Set(ProcessStatus::Running.to_string()),
             current_node_id: Set(curr_node_id),
             current_node_status: Set(NodeStatus::Prepare.to_string()),
             created_user: Set(user_info.username.clone()),

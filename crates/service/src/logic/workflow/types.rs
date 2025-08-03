@@ -105,6 +105,24 @@ impl Display for NodeStatus {
     }
 }
 
+#[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
+pub enum ProcessStatus {
+    #[default]
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "end")]
+    End,
+}
+
+impl Display for ProcessStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProcessStatus::Running => write!(f, "running"),
+            ProcessStatus::End => write!(f, "end"),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CustomJob {
     pub executor_id: u64,
