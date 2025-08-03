@@ -885,6 +885,11 @@ impl<'a> WorkflowLogic<'a> {
         Ok(is_ready)
     }
 
+    pub async fn handle_exclusive_gateway(&self, node: &WorkflowNode) -> Result<()> {
+        let next_edges = node.get_next_edges();
+        todo!();
+    }
+
     pub async fn process_node(&self, mut node: WorkflowNode) -> Result<()> {
         node.flow_depth += 1;
 

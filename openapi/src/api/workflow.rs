@@ -232,9 +232,65 @@ mod types {
     pub struct EdgeConfig {
         pub id: String,
         pub name: String,
+        pub conditions: Vec<Condition>,
         pub source_node_id: String,
         pub target_node_id: String,
         pub data: serde_json::Value,
+    }
+
+    #[derive(Serialize, Enum, Deserialize, Clone, PartialEq)]
+    pub enum ConditionValType {
+        #[oai(rename = "user_variables")]
+        #[serde(rename = "user_variables")]
+        UserVariables,
+        #[oai(rename = "custom")]
+        #[serde(rename = "custom")]
+        Custom,
+        #[oai(rename = "exit_code")]
+        #[serde(rename = "exit_code")]
+        ExitCode,
+        #[oai(rename = "output")]
+        #[serde(rename = "output")]
+        Output,
+    }
+
+    impl From<logic::workflow::types::ConditionValType> for ConditionValType {
+        fn from(value: logic::workflow::types::ConditionValType) -> Self {
+            match value {
+                logic::workflow::types::ConditionValType::UserVariables => {
+                    ConditionValType::UserVariables
+                }
+                logic::workflow::types::ConditionValType::Custom => ConditionValType::Custom,
+                logic::workflow::types::ConditionValType::ExitCode => ConditionValType::ExitCode,
+                logic::workflow::types::ConditionValType::Output => ConditionValType::Output,
+            }
+        }
+    }
+
+    impl Into<logic::workflow::types::ConditionValType> for ConditionValType {
+        fn into(self) -> logic::workflow::types::ConditionValType {
+            match self {
+                ConditionValType::UserVariables => {
+                    logic::workflow::types::ConditionValType::UserVariables
+                }
+                ConditionValType::Custom => logic::workflow::types::ConditionValType::Custom,
+                ConditionValType::ExitCode => logic::workflow::types::ConditionValType::ExitCode,
+                ConditionValType::Output => logic::workflow::types::ConditionValType::Output,
+            }
+        }
+    }
+
+    #[derive(Serialize, Object, Deserialize, Clone, PartialEq)]
+    pub struct ConditionVal {
+        pub val_type: ConditionValType,
+        pub val: String,
+    }
+
+    #[derive(Clone, Object, Serialize, Deserialize)]
+    pub struct Condition {
+        pub left_val: ConditionVal,
+        pub op: String,
+        pub right_val: ConditionVal,
     }
 
     impl TryInto<logic::workflow::types::EdgeConfig> for EdgeConfig {
@@ -243,6 +299,21 @@ mod types {
             Ok(logic::workflow::types::EdgeConfig {
                 id: self.id,
                 name: self.name,
+                conditions: self
+                    .conditions
+                    .iter()
+                    .map(|v| logic::workflow::types::Condition {
+                        left_val: logic::workflow::types::ConditionVal {
+                            val_type: v.left_val.val_type.clone().into(),
+                            val: v.left_val.val.to_string(),
+                        },
+                        op: v.op.to_string(),
+                        right_val: logic::workflow::types::ConditionVal {
+                            val_type: v.right_val.val_type.clone().into(),
+                            val: v.left_val.val.to_string(),
+                        },
+                    })
+                    .collect(),
                 source_node_id: self.source_node_id,
                 target_node_id: self.target_node_id,
                 data: self.data,
@@ -256,6 +327,21 @@ mod types {
             Ok(EdgeConfig {
                 id: value.id,
                 name: value.name,
+                conditions: value
+                    .conditions
+                    .iter()
+                    .map(|v| Condition {
+                        left_val: ConditionVal {
+                            val_type: v.left_val.val_type.clone().into(),
+                            val: v.left_val.val.to_string(),
+                        },
+                        op: v.op.clone(),
+                        right_val: ConditionVal {
+                            val_type: v.right_val.val_type.clone().into(),
+                            val: v.right_val.val.to_string(),
+                        },
+                    })
+                    .collect(),
                 source_node_id: value.source_node_id,
                 target_node_id: value.target_node_id,
                 data: value.data,

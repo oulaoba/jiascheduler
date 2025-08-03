@@ -128,10 +128,46 @@ pub struct NodeConfig {
     pub data: serde_json::Value,
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub enum ConditionValType {
+    #[serde(rename = "user_variables")]
+    UserVariables,
+    #[serde(rename = "custom")]
+    Custom,
+    #[serde(rename = "exit_code")]
+    ExitCode,
+    #[serde(rename = "output")]
+    Output,
+}
+
+impl Display for ConditionValType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConditionValType::UserVariables => write!(f, "user_variables"),
+            ConditionValType::Custom => write!(f, "custom"),
+            ConditionValType::ExitCode => write!(f, "exit_code"),
+            ConditionValType::Output => write!(f, "output"),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct ConditionVal {
+    pub val_type: ConditionValType,
+    pub val: String,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Condition {
+    pub left_val: ConditionVal,
+    pub op: String,
+    pub right_val: ConditionVal,
+}
+
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct EdgeConfig {
     pub id: String,
     pub name: String,
+    pub conditions: Vec<Condition>,
     pub source_node_id: String,
     pub target_node_id: String,
     pub data: serde_json::Value,
