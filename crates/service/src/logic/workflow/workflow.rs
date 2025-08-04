@@ -19,6 +19,7 @@ use entity::{
     executor, instance, job, team, workflow, workflow_process, workflow_process_edge,
     workflow_process_node, workflow_process_node_task, workflow_version,
 };
+use expr::Context;
 use local_ip_address::local_ip;
 use redis::streams::{StreamMaxlen, StreamReadOptions, StreamReadReply};
 use redis::{AsyncCommands, from_redis_value};
@@ -887,7 +888,186 @@ impl<'a> WorkflowLogic<'a> {
     pub async fn handle_exclusive_gateway(&self, node: &WorkflowNode) -> Result<()> {
         let next_edges = node.get_next_edges();
         for edge in next_edges {
-            for v in &edge.conditions {}
+            let mut pass = true;
+            for v in &edge.conditions {
+                let mut ctx = Context::default();
+
+                let d = match v.left_val.val_type {
+                    types::ConditionValType::UserVariables => {
+                        ctx.insert(&v.left_val.val, "");
+                        match v.right_val.val_type {
+                            types::ConditionValType::UserVariables => {
+                                ctx.insert(&v.right_val.val, "");
+                                format!("{} {} {}", v.left_val.val, v.op, v.right_val.val)
+                            }
+                            types::ConditionValType::Custom => {
+                                format!("{} {} {}", v.left_val.val, v.op, v.right_val.val)
+                            }
+                            types::ConditionValType::ExitCode => {
+                                let data = WorkflowProcessNodeTask::find()
+                                    .filter(
+                                        workflow_process_node::Column::ProcessId
+                                            .eq(&node.process_id),
+                                    )
+                                    .filter(
+                                        workflow_process_node::Column::NodeId
+                                            .eq(&node.current_node.id),
+                                    )
+                                    .all(&self.ctx.db)
+                                    .await?;
+
+                                ctx.insert("node_task_result_arr", expr::to_value(&data)?);
+
+                                format!(
+                                    "{}(node_task_result_arr, {{.exit_code {} {}}})",
+                                    &v.compute_type, &v.op, &v.left_val.val,
+                                )
+                            }
+                            types::ConditionValType::Output => {
+                                let data = WorkflowProcessNodeTask::find()
+                                    .filter(
+                                        workflow_process_node::Column::ProcessId
+                                            .eq(&node.process_id),
+                                    )
+                                    .filter(
+                                        workflow_process_node::Column::NodeId
+                                            .eq(&node.current_node.id),
+                                    )
+                                    .all(&self.ctx.db)
+                                    .await?;
+
+                                ctx.insert("node_task_result_arr", expr::to_value(&data)?);
+                                format!(
+                                    "{}(node_task_result_arr, {{.output {} {}}})",
+                                    &v.compute_type, &v.op, &v.left_val.val,
+                                )
+                            }
+                        }
+                    }
+                    types::ConditionValType::Custom => match v.right_val.val_type {
+                        types::ConditionValType::UserVariables => {
+                            ctx.insert(&v.right_val.val, "");
+                            format!("{} {} {}", v.left_val.val, v.op, v.right_val.val)
+                        }
+                        types::ConditionValType::Custom => {
+                            format!("{} {} {}", v.left_val.val, v.op, v.right_val.val)
+                        }
+                        types::ConditionValType::ExitCode => {
+                            let data = WorkflowProcessNodeTask::find()
+                                .filter(
+                                    workflow_process_node::Column::ProcessId.eq(&node.process_id),
+                                )
+                                .filter(
+                                    workflow_process_node::Column::NodeId.eq(&node.current_node.id),
+                                )
+                                .all(&self.ctx.db)
+                                .await?;
+
+                            ctx.insert("node_task_result_arr", expr::to_value(&data)?);
+                            format!(
+                                "{}(node_task_result_arr, {{.exit_code {} {}}})",
+                                &v.compute_type, &v.op, &v.left_val.val,
+                            )
+                        }
+                        types::ConditionValType::Output => {
+                            let data = WorkflowProcessNodeTask::find()
+                                .filter(
+                                    workflow_process_node::Column::ProcessId.eq(&node.process_id),
+                                )
+                                .filter(
+                                    workflow_process_node::Column::NodeId.eq(&node.current_node.id),
+                                )
+                                .all(&self.ctx.db)
+                                .await?;
+
+                            ctx.insert("node_task_result_arr", expr::to_value(&data)?);
+                            format!(
+                                "{}(node_task_result_arr, {{.output {} {}}})",
+                                &v.compute_type, &v.op, &v.left_val.val,
+                            )
+                        }
+                    },
+                    types::ConditionValType::ExitCode => {
+                        let data = WorkflowProcessNodeTask::find()
+                            .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
+                            .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
+                            .all(&self.ctx.db)
+                            .await?;
+
+                        ctx.insert("node_task_result_arr", expr::to_value(&data)?);
+                        match v.right_val.val_type {
+                            types::ConditionValType::UserVariables => {
+                                ctx.insert(&v.right_val.val, "");
+                                format!(
+                                    "{}(node_task_result_arr, {{.exit_code {} {}}})",
+                                    &v.compute_type, &v.op, &v.right_val.val,
+                                )
+                            }
+                            types::ConditionValType::Custom => {
+                                ctx.insert("right_var", &v.right_val.val);
+                                format!(
+                                    "{}(node_task_result_arr, {{.exit_code {} right_var}})",
+                                    &v.compute_type, &v.op,
+                                )
+                            }
+                            types::ConditionValType::ExitCode => {
+                                anyhow::bail!("not support exit code compare to exit code");
+                            }
+                            types::ConditionValType::Output => {
+                                anyhow::bail!("not support exit code compare to exit code");
+                            }
+                        }
+                    }
+                    types::ConditionValType::Output => {
+                        let data = WorkflowProcessNodeTask::find()
+                            .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
+                            .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
+                            .all(&self.ctx.db)
+                            .await?;
+
+                        ctx.insert("node_task_result_arr", expr::to_value(&data)?);
+                        match v.right_val.val_type {
+                            types::ConditionValType::UserVariables => {
+                                ctx.insert(&v.right_val.val, "");
+                                format!(
+                                    "{}(node_task_result_arr, {{.output {} {}}})",
+                                    &v.compute_type, &v.op, &v.right_val.val
+                                )
+                            }
+                            types::ConditionValType::Custom => {
+                                ctx.insert("right_var", &v.right_val.val);
+                                format!(
+                                    "{}(node_task_result_arr, {{.output {} right_var}})",
+                                    &v.compute_type, &v.op
+                                )
+                            }
+                            types::ConditionValType::ExitCode => {
+                                anyhow::bail!("not support output compare to exit code");
+                            }
+                            types::ConditionValType::Output => {
+                                anyhow::bail!("not support output compare to output");
+                            }
+                        }
+                    }
+                };
+
+                let ok = expr::eval(d.as_str(), &ctx)?
+                    .as_bool()
+                    .ok_or(anyhow!("invalid express compare result"))?;
+                if !ok {
+                    pass = false;
+                    break;
+                }
+            }
+            if pass {
+                let Some(next_node) = node.get_next_node_by_edge(edge) else {
+                    anyhow::bail!("failed get next node");
+                };
+                let mut workflow_node = node.clone();
+                workflow_node.reached_edge = Some(edge.clone());
+                workflow_node.current_node = next_node.clone();
+                self.flow_next(workflow_node).await?;
+            }
         }
         todo!();
     }

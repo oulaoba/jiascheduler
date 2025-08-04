@@ -94,7 +94,7 @@ pub async fn instance_health_check(state: AppState) {
             })
         })
         .await
-        .expect("faild run leader election");
+        .expect("failed run leader election");
     });
 
     tokio::spawn(async move {

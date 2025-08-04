@@ -37,3 +37,4 @@ serde_repr.workspace = true
 redis-macros.workspace = true
 local-ip-address.workspace = true
 handlebars.workspace = true
+expr-lang.workspace = true

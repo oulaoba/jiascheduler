@@ -179,6 +179,8 @@ pub struct Condition {
     pub left_val: ConditionVal,
     pub op: String,
     pub right_val: ConditionVal,
+    // all or any
+    pub compute_type: String,
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]

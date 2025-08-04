@@ -291,6 +291,7 @@ mod types {
         pub left_val: ConditionVal,
         pub op: String,
         pub right_val: ConditionVal,
+        pub compute_type: String,
     }
 
     impl TryInto<logic::workflow::types::EdgeConfig> for EdgeConfig {
@@ -308,6 +309,7 @@ mod types {
                             val: v.left_val.val.to_string(),
                         },
                         op: v.op.to_string(),
+                        compute_type: v.compute_type.clone(),
                         right_val: logic::workflow::types::ConditionVal {
                             val_type: v.right_val.val_type.clone().into(),
                             val: v.left_val.val.to_string(),
@@ -336,6 +338,7 @@ mod types {
                             val: v.left_val.val.to_string(),
                         },
                         op: v.op.clone(),
+                        compute_type: v.compute_type.clone(),
                         right_val: ConditionVal {
                             val_type: v.right_val.val_type.clone().into(),
                             val: v.right_val.val.to_string(),
