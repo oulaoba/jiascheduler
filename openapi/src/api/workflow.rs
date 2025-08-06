@@ -16,7 +16,7 @@ use crate::{
 mod types {
     use poem_openapi::{Enum, Object};
     use serde::{Deserialize, Serialize};
-    use service::logic;
+    use service::logic::{self, workflow::condition};
     use std::{collections::HashMap, fmt::Display};
 
     use crate::api::job;
@@ -254,28 +254,24 @@ mod types {
         Output,
     }
 
-    impl From<logic::workflow::types::ConditionValType> for ConditionValType {
-        fn from(value: logic::workflow::types::ConditionValType) -> Self {
+    impl From<condition::ConditionValType> for ConditionValType {
+        fn from(value: condition::ConditionValType) -> Self {
             match value {
-                logic::workflow::types::ConditionValType::UserVariables => {
-                    ConditionValType::UserVariables
-                }
-                logic::workflow::types::ConditionValType::Custom => ConditionValType::Custom,
-                logic::workflow::types::ConditionValType::ExitCode => ConditionValType::ExitCode,
-                logic::workflow::types::ConditionValType::Output => ConditionValType::Output,
+                condition::ConditionValType::UserVariables => ConditionValType::UserVariables,
+                condition::ConditionValType::Custom => ConditionValType::Custom,
+                condition::ConditionValType::ExitCode => ConditionValType::ExitCode,
+                condition::ConditionValType::Output => ConditionValType::Output,
             }
         }
     }
 
-    impl Into<logic::workflow::types::ConditionValType> for ConditionValType {
-        fn into(self) -> logic::workflow::types::ConditionValType {
+    impl Into<condition::ConditionValType> for ConditionValType {
+        fn into(self) -> condition::ConditionValType {
             match self {
-                ConditionValType::UserVariables => {
-                    logic::workflow::types::ConditionValType::UserVariables
-                }
-                ConditionValType::Custom => logic::workflow::types::ConditionValType::Custom,
-                ConditionValType::ExitCode => logic::workflow::types::ConditionValType::ExitCode,
-                ConditionValType::Output => logic::workflow::types::ConditionValType::Output,
+                ConditionValType::UserVariables => condition::ConditionValType::UserVariables,
+                ConditionValType::Custom => condition::ConditionValType::Custom,
+                ConditionValType::ExitCode => condition::ConditionValType::ExitCode,
+                ConditionValType::Output => condition::ConditionValType::Output,
             }
         }
     }
@@ -303,14 +299,14 @@ mod types {
                 conditions: self
                     .conditions
                     .iter()
-                    .map(|v| logic::workflow::types::Condition {
-                        left_val: logic::workflow::types::ConditionVal {
+                    .map(|v| condition::Condition {
+                        left_val: condition::ConditionVal {
                             val_type: v.left_val.val_type.clone().into(),
                             val: v.left_val.val.to_string(),
                         },
                         op: v.op.to_string(),
                         compute_type: v.compute_type.clone(),
-                        right_val: logic::workflow::types::ConditionVal {
+                        right_val: condition::ConditionVal {
                             val_type: v.right_val.val_type.clone().into(),
                             val: v.left_val.val.to_string(),
                         },

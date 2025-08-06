@@ -4,6 +4,7 @@ use std::pin::Pin;
 use crate::IdGenerator;
 use crate::logic::job::types::{DispatchData, DispatchResult, DispatchTarget};
 use crate::logic::types::UserInfo;
+use crate::logic::workflow::condition;
 use crate::logic::workflow::types::{
     self, CustomJob, NodeStatus, NodeType, ProcessStatus, StandardJob, Task, TaskType,
     WorkflowNode, WorkflowProcessArgs,
@@ -893,17 +894,17 @@ impl<'a> WorkflowLogic<'a> {
                 let mut ctx = Context::default();
 
                 let d = match v.left_val.val_type {
-                    types::ConditionValType::UserVariables => {
+                    condition::ConditionValType::UserVariables => {
                         ctx.insert(&v.left_val.val, "");
                         match v.right_val.val_type {
-                            types::ConditionValType::UserVariables => {
+                            condition::ConditionValType::UserVariables => {
                                 ctx.insert(&v.right_val.val, "");
                                 format!("{} {} {}", v.left_val.val, v.op, v.right_val.val)
                             }
-                            types::ConditionValType::Custom => {
+                            condition::ConditionValType::Custom => {
                                 format!("{} {} {}", v.left_val.val, v.op, v.right_val.val)
                             }
-                            types::ConditionValType::ExitCode => {
+                            condition::ConditionValType::ExitCode => {
                                 let data = WorkflowProcessNodeTask::find()
                                     .filter(
                                         workflow_process_node::Column::ProcessId
@@ -923,7 +924,7 @@ impl<'a> WorkflowLogic<'a> {
                                     &v.compute_type, &v.op, &v.left_val.val,
                                 )
                             }
-                            types::ConditionValType::Output => {
+                            condition::ConditionValType::Output => {
                                 let data = WorkflowProcessNodeTask::find()
                                     .filter(
                                         workflow_process_node::Column::ProcessId
@@ -944,15 +945,15 @@ impl<'a> WorkflowLogic<'a> {
                             }
                         }
                     }
-                    types::ConditionValType::Custom => match v.right_val.val_type {
-                        types::ConditionValType::UserVariables => {
+                    condition::ConditionValType::Custom => match v.right_val.val_type {
+                        condition::ConditionValType::UserVariables => {
                             ctx.insert(&v.right_val.val, "");
                             format!("{} {} {}", v.left_val.val, v.op, v.right_val.val)
                         }
-                        types::ConditionValType::Custom => {
+                        condition::ConditionValType::Custom => {
                             format!("{} {} {}", v.left_val.val, v.op, v.right_val.val)
                         }
-                        types::ConditionValType::ExitCode => {
+                        condition::ConditionValType::ExitCode => {
                             let data = WorkflowProcessNodeTask::find()
                                 .filter(
                                     workflow_process_node::Column::ProcessId.eq(&node.process_id),
@@ -969,7 +970,7 @@ impl<'a> WorkflowLogic<'a> {
                                 &v.compute_type, &v.op, &v.left_val.val,
                             )
                         }
-                        types::ConditionValType::Output => {
+                        condition::ConditionValType::Output => {
                             let data = WorkflowProcessNodeTask::find()
                                 .filter(
                                     workflow_process_node::Column::ProcessId.eq(&node.process_id),
@@ -987,7 +988,7 @@ impl<'a> WorkflowLogic<'a> {
                             )
                         }
                     },
-                    types::ConditionValType::ExitCode => {
+                    condition::ConditionValType::ExitCode => {
                         let data = WorkflowProcessNodeTask::find()
                             .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
                             .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
@@ -996,29 +997,29 @@ impl<'a> WorkflowLogic<'a> {
 
                         ctx.insert("node_task_result_arr", expr::to_value(&data)?);
                         match v.right_val.val_type {
-                            types::ConditionValType::UserVariables => {
+                            condition::ConditionValType::UserVariables => {
                                 ctx.insert(&v.right_val.val, "");
                                 format!(
                                     "{}(node_task_result_arr, {{.exit_code {} {}}})",
                                     &v.compute_type, &v.op, &v.right_val.val,
                                 )
                             }
-                            types::ConditionValType::Custom => {
+                            condition::ConditionValType::Custom => {
                                 ctx.insert("right_var", &v.right_val.val);
                                 format!(
                                     "{}(node_task_result_arr, {{.exit_code {} right_var}})",
                                     &v.compute_type, &v.op,
                                 )
                             }
-                            types::ConditionValType::ExitCode => {
+                            condition::ConditionValType::ExitCode => {
                                 anyhow::bail!("not support exit code compare to exit code");
                             }
-                            types::ConditionValType::Output => {
+                            condition::ConditionValType::Output => {
                                 anyhow::bail!("not support exit code compare to exit code");
                             }
                         }
                     }
-                    types::ConditionValType::Output => {
+                    condition::ConditionValType::Output => {
                         let data = WorkflowProcessNodeTask::find()
                             .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
                             .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
@@ -1027,24 +1028,24 @@ impl<'a> WorkflowLogic<'a> {
 
                         ctx.insert("node_task_result_arr", expr::to_value(&data)?);
                         match v.right_val.val_type {
-                            types::ConditionValType::UserVariables => {
+                            condition::ConditionValType::UserVariables => {
                                 ctx.insert(&v.right_val.val, "");
                                 format!(
                                     "{}(node_task_result_arr, {{.output {} {}}})",
                                     &v.compute_type, &v.op, &v.right_val.val
                                 )
                             }
-                            types::ConditionValType::Custom => {
+                            condition::ConditionValType::Custom => {
                                 ctx.insert("right_var", &v.right_val.val);
                                 format!(
                                     "{}(node_task_result_arr, {{.output {} right_var}})",
                                     &v.compute_type, &v.op
                                 )
                             }
-                            types::ConditionValType::ExitCode => {
+                            condition::ConditionValType::ExitCode => {
                                 anyhow::bail!("not support output compare to exit code");
                             }
-                            types::ConditionValType::Output => {
+                            condition::ConditionValType::Output => {
                                 anyhow::bail!("not support output compare to output");
                             }
                         }
