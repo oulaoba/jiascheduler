@@ -152,7 +152,7 @@ pub struct NodeConfig {
 pub struct EdgeConfig {
     pub id: String,
     pub name: String,
-    pub conditions: Vec<condition::Condition>,
+    pub condition: Option<condition::Condition>,
     pub source_node_id: String,
     pub target_node_id: String,
     pub data: serde_json::Value,

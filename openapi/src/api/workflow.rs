@@ -7,19 +7,13 @@ use poem_openapi::{
 };
 use service::logic::workflow::types::{EdgeConfig, NodeConfig};
 
-use crate::{
-    api::workflow::types::{StandardJob, TaskType},
-    api_response, local_time, logic, middleware, return_err, return_ok,
-    state::AppState,
-};
+use crate::{api_response, local_time, logic, middleware, return_err, return_ok, state::AppState};
 
 mod types {
     use poem_openapi::{Enum, Object};
     use serde::{Deserialize, Serialize};
     use service::logic::{self, workflow::condition};
-    use std::{collections::HashMap, fmt::Display};
-
-    use crate::api::job;
+    use std::fmt::Display;
 
     pub fn default_page() -> u64 {
         1
@@ -232,7 +226,7 @@ mod types {
     pub struct EdgeConfig {
         pub id: String,
         pub name: String,
-        pub conditions: Vec<Condition>,
+        pub condition: Option<Condition>,
         pub source_node_id: String,
         pub target_node_id: String,
         pub data: serde_json::Value,
@@ -283,11 +277,18 @@ mod types {
     }
 
     #[derive(Clone, Object, Serialize, Deserialize)]
-    pub struct Condition {
+    pub struct Rule {
+        pub name: String,
         pub left_val: ConditionVal,
         pub op: String,
         pub right_val: ConditionVal,
         pub compute_type: String,
+    }
+
+    #[derive(Clone, Object, Serialize, Deserialize)]
+    pub struct Condition {
+        pub rules: Vec<Rule>,
+        pub expr: String,
     }
 
     impl TryInto<logic::workflow::types::EdgeConfig> for EdgeConfig {
@@ -296,22 +297,28 @@ mod types {
             Ok(logic::workflow::types::EdgeConfig {
                 id: self.id,
                 name: self.name,
-                conditions: self
-                    .conditions
-                    .iter()
-                    .map(|v| condition::Condition {
-                        left_val: condition::ConditionVal {
-                            val_type: v.left_val.val_type.clone().into(),
-                            val: v.left_val.val.to_string(),
-                        },
-                        op: v.op.to_string(),
-                        compute_type: v.compute_type.clone(),
-                        right_val: condition::ConditionVal {
-                            val_type: v.right_val.val_type.clone().into(),
-                            val: v.left_val.val.to_string(),
-                        },
+                condition: self.condition.map_or(None, |v| {
+                    Some(condition::Condition {
+                        expr: v.expr.clone(),
+                        rules: v
+                            .rules
+                            .iter()
+                            .map(|r| condition::Rule {
+                                name: r.name.clone(),
+                                left_val: condition::ConditionVal {
+                                    val_type: r.left_val.val_type.clone().into(),
+                                    val: r.left_val.val.to_string(),
+                                },
+                                op: r.op.to_string(),
+                                compute_type: r.compute_type.clone(),
+                                right_val: condition::ConditionVal {
+                                    val_type: r.right_val.val_type.clone().into(),
+                                    val: r.left_val.val.to_string(),
+                                },
+                            })
+                            .collect(),
                     })
-                    .collect(),
+                }),
                 source_node_id: self.source_node_id,
                 target_node_id: self.target_node_id,
                 data: self.data,
@@ -325,22 +332,28 @@ mod types {
             Ok(EdgeConfig {
                 id: value.id,
                 name: value.name,
-                conditions: value
-                    .conditions
-                    .iter()
-                    .map(|v| Condition {
-                        left_val: ConditionVal {
-                            val_type: v.left_val.val_type.clone().into(),
-                            val: v.left_val.val.to_string(),
-                        },
-                        op: v.op.clone(),
-                        compute_type: v.compute_type.clone(),
-                        right_val: ConditionVal {
-                            val_type: v.right_val.val_type.clone().into(),
-                            val: v.right_val.val.to_string(),
-                        },
+                condition: value.condition.map_or(None, |v| {
+                    Some(Condition {
+                        expr: v.expr.clone(),
+                        rules: v
+                            .rules
+                            .iter()
+                            .map(|r| Rule {
+                                name: r.name.clone(),
+                                left_val: ConditionVal {
+                                    val_type: r.left_val.val_type.clone().into(),
+                                    val: r.left_val.val.to_string(),
+                                },
+                                op: r.op.clone(),
+                                compute_type: r.compute_type.clone(),
+                                right_val: ConditionVal {
+                                    val_type: r.right_val.val_type.clone().into(),
+                                    val: r.right_val.val.to_string(),
+                                },
+                            })
+                            .collect(),
                     })
-                    .collect(),
+                }),
                 source_node_id: value.source_node_id,
                 target_node_id: value.target_node_id,
                 data: value.data,
