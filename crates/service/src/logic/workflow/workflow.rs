@@ -2,12 +2,13 @@ use core::matches;
 use std::pin::Pin;
 
 use crate::IdGenerator;
+use crate::logic::job::JobLogic;
 use crate::logic::job::types::{DispatchData, DispatchResult, DispatchTarget};
 use crate::logic::types::UserInfo;
 use crate::logic::workflow::condition;
 use crate::logic::workflow::types::{
     self, CustomJob, NodeStatus, NodeType, ProcessStatus, StandardJob, Task, TaskType,
-    WorkflowNode, WorkflowProcessArgs,
+    WorkflowNode, WorkflowNodeActualArgs, WorkflowProcessArgs,
 };
 use crate::{
     entity::{prelude::*, team_member},
@@ -185,7 +186,7 @@ impl<'a> WorkflowLogic<'a> {
 
         for node in &nodes {
             if node.task_type == TaskType::Standard
-                && matches!(node.task, Task::Standard(StandardJob{ref eid}) if eid == "")
+                && matches!(node.task, Task::Standard(StandardJob{ref eid,..}) if eid == "")
             {
                 anyhow::bail!("no job is assigned to the workflow node {}", node.name)
             }
@@ -401,12 +402,14 @@ impl<'a> WorkflowLogic<'a> {
 
     pub async fn dispatch_custom_job(
         &self,
-        node: &WorkflowNode,
+        node: &mut WorkflowNode,
         custom_job: &CustomJob,
-        instance_ids: Vec<String>,
     ) -> Result<()> {
+        let actual_args =
+            node.parse_actual_args(custom_job.code.clone(), custom_job.args.clone())?;
+
         let endpoints = Instance::find()
-            .filter(instance::Column::InstanceId.is_in(instance_ids))
+            .filter(instance::Column::InstanceId.is_in(&actual_args.target))
             .all(&self.ctx.db)
             .await?;
         if endpoints.len() == 0 {
@@ -596,20 +599,7 @@ impl<'a> WorkflowLogic<'a> {
         Ok(())
     }
 
-    pub async fn dispatch_job(
-        &self,
-        node: &WorkflowNode,
-        eid: String,
-        instance_ids: Vec<String>,
-    ) -> Result<()> {
-        let endpoints = Instance::find()
-            .filter(instance::Column::InstanceId.is_in(instance_ids))
-            .all(&self.ctx.db)
-            .await?;
-        if endpoints.len() == 0 {
-            anyhow::bail!("cannot found valid instance");
-        }
-
+    pub async fn dispatch_job(&self, node: &mut WorkflowNode, eid: String) -> Result<()> {
         let job_record = Job::find()
             .filter(job::Column::Eid.eq(eid.clone()))
             .filter(job::Column::IsDeleted.eq(false))
@@ -638,6 +628,17 @@ impl<'a> WorkflowLogic<'a> {
 
         let command_slice: Vec<&str> = executor_record.command.split(" ").collect();
 
+        let actual_args =
+            node.parse_actual_args(job_record.code.clone(), job_record.args.clone())?;
+
+        let endpoints = Instance::find()
+            .filter(instance::Column::InstanceId.is_in(&actual_args.target))
+            .all(&self.ctx.db)
+            .await?;
+        if endpoints.len() == 0 {
+            anyhow::bail!("cannot found valid instance");
+        }
+
         let dispatch_params = automate::DispatchJobParams {
             base_job: automate::BaseJob {
                 eid: job_record.eid.clone(),
@@ -645,7 +646,7 @@ impl<'a> WorkflowLogic<'a> {
                     .get(0)
                     .map_or("".to_string(), |&v| v.to_owned()),
 
-                code: job_record.code.clone(),
+                code: actual_args.code.clone(),
                 args: command_slice
                     .get(1..)
                     .map_or(vec![], |v| v.into_iter().map(|&v| v.to_owned()).collect()),
@@ -662,7 +663,7 @@ impl<'a> WorkflowLogic<'a> {
             run_id: IdGenerator::get_run_id(),
             instance_id: None,
             fields: Some(json!({
-                "workflow_node": serde_json::to_value(node)?
+                "workflow_node": serde_json::to_value(& *node)?
             })),
             restart_interval: None,
             created_user: node.created_user.clone(),
@@ -804,25 +805,15 @@ impl<'a> WorkflowLogic<'a> {
         Ok(())
     }
 
-    pub async fn handle_service_task(&self, node: &WorkflowNode) -> Result<()> {
+    pub async fn handle_service_task(&self, node: &mut WorkflowNode) -> Result<()> {
         info!("{}", serde_json::to_string_pretty(&node)?);
-
-        let Some(WorkflowProcessArgs {
-            default_target: Some(ref instance_ids),
-            ..
-        }) = node.process_args
-        else {
-            anyhow::bail!("invalid default target");
-        };
 
         match node.current_node.task {
             Task::Standard(ref standard_job) => {
-                self.dispatch_job(node, standard_job.eid.clone(), instance_ids.to_vec())
-                    .await?;
+                self.dispatch_job(node, standard_job.eid.clone()).await?;
             }
             Task::Custom(ref custom_job) => {
-                self.dispatch_custom_job(node, custom_job, instance_ids.to_vec())
-                    .await?
+                self.dispatch_custom_job(node, &custom_job.clone()).await?
             }
             Task::None => todo!(),
         }
@@ -830,7 +821,7 @@ impl<'a> WorkflowLogic<'a> {
         Ok(())
     }
 
-    pub async fn is_ready(&self, node: &WorkflowNode) -> Result<bool> {
+    pub async fn is_ready(&self, node: &mut WorkflowNode) -> Result<bool> {
         if let Some(ref reached_edge) = node.reached_edge {
             // Todo: check edge condition
 
@@ -932,13 +923,13 @@ impl<'a> WorkflowLogic<'a> {
     pub async fn process_node(&self, mut node: WorkflowNode) -> Result<()> {
         node.flow_depth += 1;
 
-        if !self.is_ready(&node).await? {
+        if !self.is_ready(&mut node).await? {
             return Ok(());
         }
 
         let ret = match node.current_node.node_type {
             NodeType::StartEvent => self.handle_start_event(&node).await,
-            NodeType::ServiceTask => self.handle_service_task(&node).await,
+            NodeType::ServiceTask => self.handle_service_task(&mut node).await,
             NodeType::EndEvent => self.handle_end_event(&node).await,
             NodeType::ExclusiveGateway => self.handle_exclusive_gateway(&node).await,
         };

@@ -11,6 +11,7 @@ use automate::{
 use chrono::Local;
 use evalexpr::eval_boolean;
 
+use handlebars::Handlebars;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use sea_orm::{
     ActiveValue::NotSet, ColumnTrait, Condition, EntityTrait, JoinType, PaginatorTrait,
@@ -42,14 +43,6 @@ use super::{
     JobLogic,
     types::{self, BundleScriptRecord, BundleScriptResult, DispatchData, DispatchTarget},
 };
-
-#[test]
-fn test_hello() {
-    match eval_boolean("$v=10;true") {
-        Ok(v) => println!("-----------------{}", v),
-        Err(e) => println!("-----------------{}", e),
-    }
-}
 
 impl<'a> JobLogic<'a> {
     pub async fn compute_bundle_output() {}
@@ -372,6 +365,32 @@ impl<'a> JobLogic<'a> {
         Ok(())
     }
 
+    pub fn get_job_code(
+        code: String,
+        formal_args: Option<serde_json::Value>,
+        actual_args: Option<serde_json::Value>,
+    ) -> Result<String> {
+        let Some(mut args) = formal_args.clone() else {
+            return Ok(code);
+        };
+
+        if !args.is_object() {
+            return Ok(code);
+        }
+
+        if let Some(actual_args) = actual_args
+            && actual_args.is_object()
+        {
+            args.as_object_mut()
+                .unwrap()
+                .extend(actual_args.as_object().unwrap().to_owned());
+        }
+
+        let reg = Handlebars::new();
+        let val = reg.render_template(&code, &args)?;
+        Ok(val)
+    }
+
     pub async fn dispatch_job(
         &self,
         secret: String,
@@ -383,6 +402,7 @@ impl<'a> JobLogic<'a> {
         action: automate::JobAction,
         timer_expr: Option<String>,
         restart_interval: Option<Duration>,
+        actual_args: Option<serde_json::Value>,
         created_user: String,
     ) -> Result<u64> {
         self.check_schedule_type(action.clone(), schedule_type.clone())?;
@@ -465,7 +485,11 @@ impl<'a> JobLogic<'a> {
                     .get(0)
                     .map_or("".to_string(), |&v| v.to_owned()),
                 bundle_script,
-                code: job_record.code.clone(),
+                code: Self::get_job_code(
+                    job_record.code.clone(),
+                    job_record.args.clone(),
+                    actual_args,
+                )?,
                 args: command_slice
                     .get(1..)
                     .map_or(vec![], |v| v.into_iter().map(|&v| v.to_owned()).collect()),

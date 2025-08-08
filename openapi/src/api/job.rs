@@ -228,6 +228,7 @@ pub mod types {
         pub schedule_type: String,
         pub endpoints: Vec<Endpoint>,
         pub eid: String,
+        pub args: Option<serde_json::Value>,
         pub timer_expr: Option<TimerExpr>,
         pub restart_interval: Option<u64>,
         pub is_sync: bool,
@@ -927,6 +928,7 @@ impl JobApi {
                 action,
                 req.timer_expr.map(|v| v.into()),
                 req.restart_interval.map(|v| Duration::from_secs(v)),
+                req.args,
                 user_info.username.clone(),
             )
             .await?;

@@ -1,10 +1,11 @@
 use anyhow::{Result, anyhow};
+use entity::job;
 use redis_macros::{FromRedisValue, ToRedisArgs};
 use sea_orm::{FromQueryResult, prelude::DateTimeLocal};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-use crate::logic::workflow::condition;
+use crate::logic::{job::JobLogic, workflow::condition};
 #[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
 pub enum NodeType {
     #[default]
@@ -130,12 +131,15 @@ pub struct CustomJob {
     pub executor_id: u64,
     pub timeout: Option<u64>,
     pub code: String,
+    pub args: Option<serde_json::Value>,
     pub upload_file: Option<String>,
+    pub target: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StandardJob {
     pub eid: String,
+    pub target: Option<Vec<String>>,
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, FromRedisValue, ToRedisArgs)]
@@ -207,7 +211,7 @@ pub struct WorkflowJobArgsAssignment {
 #[derive(Default, Serialize, Deserialize, Clone)]
 pub struct WorkflowNodeActualArgs {
     pub formal: Vec<WorkflowJobArgs>,
-    pub args: serde_json::Value,
+    pub args: Option<serde_json::Value>,
     pub code: String,
     pub target: Vec<String>,
 }
@@ -249,6 +253,46 @@ impl WorkflowNode {
         self.origin_nodes
             .iter()
             .find(|&v| v.id == edge.target_node_id)
+    }
+
+    pub fn parse_actual_args(
+        &mut self,
+        code: String,
+        formal_args: Option<serde_json::Value>,
+    ) -> Result<&WorkflowNodeActualArgs> {
+        let actual = self.process_args.as_ref().map_or(None, |v| {
+            let Some(current) = v
+                .nodes
+                .iter()
+                .find_map(|v| v.iter().find(|&v| v.node_id == self.current_node.id))
+            else {
+                return None;
+            };
+            Some(current)
+        });
+        let actual_args = actual.map_or(None, |v| Some(v.args.clone()));
+
+        let code = JobLogic::get_job_code(code, formal_args, actual_args.clone())?;
+
+        let mut target = match self.current_node.task.clone() {
+            Task::Standard(standard_job) => standard_job.target.unwrap_or_default(),
+            Task::Custom(custom_job) => custom_job.target.unwrap_or_default(),
+            Task::None => vec![],
+        };
+        if let Some(current_args) = actual
+            && current_args.target.len() > 0
+        {
+            target = current_args.target.clone();
+        }
+
+        self.actual_args = Some(WorkflowNodeActualArgs {
+            formal: vec![],
+            args: actual_args,
+            code: code,
+            target,
+        });
+
+        Ok(&self.actual_args.as_ref().unwrap())
     }
 
     pub fn get_next_edge(&self) -> Option<&EdgeConfig> {

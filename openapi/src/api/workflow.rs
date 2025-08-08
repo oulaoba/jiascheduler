@@ -88,11 +88,11 @@ mod types {
         fn try_from(value: logic::workflow::types::Task) -> Result<Self, Self::Error> {
             let data = serde_json::to_string_pretty(&value)?;
 
-            println!("here---{data:?}");
             Ok(match value {
                 logic::workflow::types::Task::Standard(standard_job) => Self {
                     standard: Some(StandardJob {
                         eid: standard_job.eid,
+                        target: standard_job.target,
                     }),
                     custom: None,
                 },
@@ -103,6 +103,8 @@ mod types {
                         timeout: custom_job.timeout,
                         code: custom_job.code,
                         upload_file: custom_job.upload_file,
+                        target: custom_job.target,
+                        args: custom_job.args,
                     }),
                 },
                 logic::workflow::types::Task::None => Self {
@@ -119,7 +121,10 @@ mod types {
         fn try_into(self) -> Result<logic::workflow::types::Task, Self::Error> {
             if let Some(std_job) = self.standard {
                 Ok(logic::workflow::types::Task::Standard(
-                    logic::workflow::types::StandardJob { eid: std_job.eid },
+                    logic::workflow::types::StandardJob {
+                        eid: std_job.eid,
+                        target: std_job.target,
+                    },
                 ))
             } else if let Some(job) = self.custom {
                 Ok(logic::workflow::types::Task::Custom(
@@ -128,6 +133,8 @@ mod types {
                         timeout: job.timeout,
                         code: job.code,
                         upload_file: job.upload_file,
+                        target: job.target,
+                        args: job.args,
                     },
                 ))
             } else {
@@ -177,11 +184,14 @@ mod types {
         pub timeout: Option<u64>,
         pub code: String,
         pub upload_file: Option<String>,
+        pub target: Option<Vec<String>>,
+        pub args: Option<serde_json::Value>,
     }
 
     #[derive(Serialize, Object, Deserialize, Clone, Debug)]
     pub struct StandardJob {
         pub eid: String,
+        pub target: Option<Vec<String>>,
     }
 
     #[derive(Clone, Object, Serialize, Deserialize)]
