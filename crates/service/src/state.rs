@@ -170,7 +170,7 @@ impl AppContext {
         }
     }
 
-    pub fn service(&self) -> Service {
+    pub fn service(&'_ self) -> Service<'_> {
         Service {
             user: UserLogic::new(self),
             job: JobLogic::new(self),

@@ -400,13 +400,106 @@ impl<'a> WorkflowLogic<'a> {
         Ok(())
     }
 
+    pub async fn parse_actual_args(
+        &'_ self,
+        node: &'a mut WorkflowNode,
+        code: String,
+    ) -> Result<&'a WorkflowNodeActualArgs> {
+        let actual = node.process_args.as_ref().map_or(None, |v| {
+            let Some(current) = v
+                .nodes
+                .iter()
+                .find_map(|v| v.iter().find(|&v| v.node_id == node.current_node.id))
+            else {
+                return None;
+            };
+            Some(current)
+        });
+
+        let formal_args2 = match node.current_node.task {
+            Task::Standard(ref standard_job) => standard_job.formal_args.clone(),
+            Task::Custom(ref custom_job) => custom_job.formal_args.clone(),
+            Task::None => vec![],
+        };
+
+        // let formal_args2 = self.current_node
+        let mut actual_args = actual.map_or(None, |v| Some(v.args.clone()));
+        let mut formal_args: Option<serde_json::Value> = None;
+
+        for arg in formal_args2 {
+            if let Some(assignment) = arg.node_assignment {
+                if assignment.is_first_instance_result {
+                    let record = WorkflowProcessNodeTask::find()
+                        .filter(workflow_process_node_task::Column::ProcessId.eq(&node.process_id))
+                        .one(&self.ctx.db)
+                        .await?;
+
+                    actual_args = if let Some(mut v) = actual_args {
+                        v[arg.name] = serde_json::to_value(record)?;
+                        Some(v)
+                    } else {
+                        Some(json!({
+                            arg.name.clone():record,
+                        }))
+                    };
+                } else if assignment.is_completed_result {
+                    let records = WorkflowProcessNodeTask::find()
+                        .filter(workflow_process_node_task::Column::ProcessId.eq(&node.process_id))
+                        .all(&self.ctx.db)
+                        .await?;
+
+                    actual_args = if let Some(mut v) = actual_args {
+                        v[arg.name] = serde_json::to_value(records)?;
+                        Some(v)
+                    } else {
+                        Some(json!({
+                            arg.name.clone():records,
+                        }))
+                    };
+                }
+            } else {
+                formal_args = if let Some(mut v) = formal_args {
+                    v[arg.name] = serde_json::to_value(arg.val)?;
+                    Some(v)
+                } else {
+                    Some(json!({
+                        arg.name:arg.val,
+                    }))
+                };
+            }
+        }
+
+        let code = JobLogic::get_job_code(code, formal_args, actual_args.clone())?;
+
+        let mut target = match node.current_node.task.clone() {
+            Task::Standard(standard_job) => standard_job.target.unwrap_or_default(),
+            Task::Custom(custom_job) => custom_job.target.unwrap_or_default(),
+            Task::None => vec![],
+        };
+        if let Some(current_args) = actual
+            && current_args.target.len() > 0
+        {
+            target = current_args.target.clone();
+        }
+
+        node.actual_args = Some(WorkflowNodeActualArgs {
+            formal: vec![],
+            args: actual_args,
+            code: code,
+            target,
+        });
+
+        Ok(node.actual_args.as_ref().unwrap())
+    }
+
     pub async fn dispatch_custom_job(
         &self,
         node: &mut WorkflowNode,
         custom_job: &CustomJob,
     ) -> Result<()> {
-        let actual_args =
-            node.parse_actual_args(custom_job.code.clone(), custom_job.args.clone())?;
+        let actual_args = self
+            .parse_actual_args(node, custom_job.code.clone())
+            .await?;
 
         let endpoints = Instance::find()
             .filter(instance::Column::InstanceId.is_in(&actual_args.target))
@@ -599,13 +692,13 @@ impl<'a> WorkflowLogic<'a> {
         Ok(())
     }
 
-    pub async fn dispatch_job(&self, node: &mut WorkflowNode, eid: String) -> Result<()> {
+    pub async fn dispatch_job(&self, node: &mut WorkflowNode, std_job: &StandardJob) -> Result<()> {
         let job_record = Job::find()
-            .filter(job::Column::Eid.eq(eid.clone()))
+            .filter(job::Column::Eid.eq(std_job.eid.clone()))
             .filter(job::Column::IsDeleted.eq(false))
             .one(&self.ctx.db)
             .await?
-            .ok_or(anyhow!("cannot found job {}", eid))?;
+            .ok_or(anyhow!("cannot found job {}", std_job.eid))?;
 
         let executor_record = Executor::find()
             .filter(executor::Column::Id.eq(job_record.executor_id))
@@ -628,8 +721,9 @@ impl<'a> WorkflowLogic<'a> {
 
         let command_slice: Vec<&str> = executor_record.command.split(" ").collect();
 
-        let actual_args =
-            node.parse_actual_args(job_record.code.clone(), job_record.args.clone())?;
+        let actual_args = self
+            .parse_actual_args(node, job_record.code.clone())
+            .await?;
 
         let endpoints = Instance::find()
             .filter(instance::Column::InstanceId.is_in(&actual_args.target))
@@ -810,7 +904,7 @@ impl<'a> WorkflowLogic<'a> {
 
         match node.current_node.task {
             Task::Standard(ref standard_job) => {
-                self.dispatch_job(node, standard_job.eid.clone()).await?;
+                self.dispatch_job(node, &standard_job.clone()).await?;
             }
             Task::Custom(ref custom_job) => {
                 self.dispatch_custom_job(node, &custom_job.clone()).await?
@@ -823,8 +917,6 @@ impl<'a> WorkflowLogic<'a> {
 
     pub async fn is_ready(&self, node: &mut WorkflowNode) -> Result<bool> {
         if let Some(ref reached_edge) = node.reached_edge {
-            // Todo: check edge condition
-
             WorkflowProcessEdge::insert(workflow_process_edge::ActiveModel {
                 process_id: Set(node.process_id.to_string()),
                 run_id: Set(node.run_id.to_string()),

@@ -86,13 +86,26 @@ mod types {
     impl TryFrom<logic::workflow::types::Task> for Task {
         type Error = anyhow::Error;
         fn try_from(value: logic::workflow::types::Task) -> Result<Self, Self::Error> {
-            let data = serde_json::to_string_pretty(&value)?;
-
             Ok(match value {
-                logic::workflow::types::Task::Standard(standard_job) => Self {
+                logic::workflow::types::Task::Standard(std_job) => Self {
                     standard: Some(StandardJob {
-                        eid: standard_job.eid,
-                        target: standard_job.target,
+                        eid: std_job.eid,
+                        formal_args: std_job
+                            .formal_args
+                            .iter()
+                            .map(|v| WorkflowJobArgs {
+                                name: v.name.clone(),
+                                val: v.val.clone(),
+                                node_assignment: v.node_assignment.as_ref().map(|v| {
+                                    WorkflowJobArgsAssignment {
+                                        source_node_id: v.source_node_id.clone(),
+                                        is_first_instance_result: v.is_first_instance_result,
+                                        is_completed_result: v.is_completed_result,
+                                    }
+                                }),
+                            })
+                            .collect(),
+                        target: std_job.target,
                     }),
                     custom: None,
                 },
@@ -104,7 +117,21 @@ mod types {
                         code: custom_job.code,
                         upload_file: custom_job.upload_file,
                         target: custom_job.target,
-                        args: custom_job.args,
+                        formal_args: custom_job
+                            .formal_args
+                            .iter()
+                            .map(|v| WorkflowJobArgs {
+                                name: v.name.clone(),
+                                val: v.val.clone(),
+                                node_assignment: v.node_assignment.as_ref().map(|v| {
+                                    WorkflowJobArgsAssignment {
+                                        source_node_id: v.source_node_id.clone(),
+                                        is_first_instance_result: v.is_first_instance_result,
+                                        is_completed_result: v.is_completed_result,
+                                    }
+                                }),
+                            })
+                            .collect(),
                     }),
                 },
                 logic::workflow::types::Task::None => Self {
@@ -123,6 +150,21 @@ mod types {
                 Ok(logic::workflow::types::Task::Standard(
                     logic::workflow::types::StandardJob {
                         eid: std_job.eid,
+                        formal_args: std_job
+                            .formal_args
+                            .iter()
+                            .map(|v| logic::workflow::types::WorkflowJobArgs {
+                                name: v.name.clone(),
+                                val: v.val.clone(),
+                                node_assignment: v.node_assignment.as_ref().map(|v| {
+                                    logic::workflow::types::WorkflowJobArgsAssignment {
+                                        source_node_id: v.source_node_id.clone(),
+                                        is_first_instance_result: v.is_first_instance_result,
+                                        is_completed_result: v.is_completed_result,
+                                    }
+                                }),
+                            })
+                            .collect(),
                         target: std_job.target,
                     },
                 ))
@@ -134,7 +176,21 @@ mod types {
                         code: job.code,
                         upload_file: job.upload_file,
                         target: job.target,
-                        args: job.args,
+                        formal_args: job
+                            .formal_args
+                            .iter()
+                            .map(|v| logic::workflow::types::WorkflowJobArgs {
+                                name: v.name.clone(),
+                                val: v.val.clone(),
+                                node_assignment: v.node_assignment.as_ref().map(|v| {
+                                    logic::workflow::types::WorkflowJobArgsAssignment {
+                                        source_node_id: v.source_node_id.clone(),
+                                        is_first_instance_result: v.is_first_instance_result,
+                                        is_completed_result: v.is_completed_result,
+                                    }
+                                }),
+                            })
+                            .collect(),
                     },
                 ))
             } else {
@@ -178,6 +234,20 @@ mod types {
         }
     }
 
+    #[derive(Default, Object, Serialize, Deserialize, Clone, Debug)]
+    pub struct WorkflowJobArgs {
+        pub name: String,
+        pub val: String,
+        pub node_assignment: Option<WorkflowJobArgsAssignment>,
+    }
+
+    #[derive(Default, Object, Serialize, Deserialize, Clone, Debug)]
+    pub struct WorkflowJobArgsAssignment {
+        pub source_node_id: String,
+        pub is_first_instance_result: bool,
+        pub is_completed_result: bool,
+    }
+
     #[derive(Serialize, Object, Deserialize, Clone, Debug)]
     pub struct CustomJob {
         pub executor_id: u64,
@@ -185,12 +255,13 @@ mod types {
         pub code: String,
         pub upload_file: Option<String>,
         pub target: Option<Vec<String>>,
-        pub args: Option<serde_json::Value>,
+        pub formal_args: Vec<WorkflowJobArgs>,
     }
 
     #[derive(Serialize, Object, Deserialize, Clone, Debug)]
     pub struct StandardJob {
         pub eid: String,
+        pub formal_args: Vec<WorkflowJobArgs>,
         pub target: Option<Vec<String>>,
     }
 
