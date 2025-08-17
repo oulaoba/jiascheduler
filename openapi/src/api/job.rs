@@ -59,8 +59,35 @@ pub mod types {
         #[oai(default)]
         pub is_public: Option<bool>,
         pub display_on_dashboard: Option<bool>,
-        pub args: Option<HashMap<String, String>>,
+        pub args: Vec<JobFormalArg>,
         pub completed_callback: Option<CompletedCallbackOpts>,
+    }
+
+    #[derive(Object, Serialize, Default)]
+    pub struct JobFormalArg {
+        pub name: String,
+        pub val: String,
+        pub info: String,
+    }
+
+    impl From<logic::job::types::JobFormalArg> for JobFormalArg {
+        fn from(value: logic::job::types::JobFormalArg) -> Self {
+            Self {
+                name: value.name,
+                val: value.val,
+                info: value.info,
+            }
+        }
+    }
+
+    impl Into<logic::job::types::JobFormalArg> for JobFormalArg {
+        fn into(self) -> logic::job::types::JobFormalArg {
+            logic::job::types::JobFormalArg {
+                name: self.name,
+                val: self.val,
+                info: self.info,
+            }
+        }
     }
 
     #[derive(Object, Serialize, Default)]
@@ -672,11 +699,15 @@ impl JobApi {
             return Err(NoPermission().into());
         }
 
-        let args = req
-            .args
-            .map(|v| serde_json::to_value(&v))
-            .transpose()
-            .map_err(std_into_error)?;
+        // let args2: logic::job::types::JobFormalArg = req.args[0].into();
+
+        let args: Vec<logic::job::types::JobFormalArg> =
+            req.args.into_iter().map(|v| v.into()).collect();
+        let args = if args.len() > 0 {
+            None
+        } else {
+            Some(serde_json::to_value(args).map_err(std_into_error)?)
+        };
 
         let completed_callback = if let Some(v) = req.completed_callback {
             let data: logic::types::CompletedCallbackOpts = v.into();

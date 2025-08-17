@@ -281,3 +281,10 @@ pub struct ScheduleJobTeamModel {
     pub created_time: DateTimeLocal,
     pub updated_time: DateTimeLocal,
 }
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct JobFormalArg {
+    pub name: String,
+    pub val: String,
+    pub info: String,
+}

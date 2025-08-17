@@ -2,6 +2,7 @@ use core::matches;
 use std::pin::Pin;
 
 use crate::IdGenerator;
+use crate::logic::executor::ExecutorLogic;
 use crate::logic::job::JobLogic;
 use crate::logic::job::types::{DispatchData, DispatchResult, DispatchTarget};
 use crate::logic::types::UserInfo;
@@ -416,17 +417,16 @@ impl<'a> WorkflowLogic<'a> {
             Some(current)
         });
 
-        let formal_args2 = match node.current_node.task {
+        let formal_args = match node.current_node.task {
             Task::Standard(ref standard_job) => standard_job.formal_args.clone(),
             Task::Custom(ref custom_job) => custom_job.formal_args.clone(),
             Task::None => vec![],
         };
 
-        // let formal_args2 = self.current_node
         let mut actual_args = actual.map_or(None, |v| Some(v.args.clone()));
-        let mut formal_args: Option<serde_json::Value> = None;
+        let mut default_args: Option<serde_json::Value> = None;
 
-        for arg in formal_args2 {
+        for arg in formal_args {
             if let Some(assignment) = arg.node_assignment {
                 if assignment.is_first_instance_result {
                     let record = WorkflowProcessNodeTask::find()
@@ -458,7 +458,7 @@ impl<'a> WorkflowLogic<'a> {
                     };
                 }
             } else {
-                formal_args = if let Some(mut v) = formal_args {
+                default_args = if let Some(mut v) = default_args {
                     v[arg.name] = serde_json::to_value(arg.val)?;
                     Some(v)
                 } else {
@@ -469,7 +469,7 @@ impl<'a> WorkflowLogic<'a> {
             }
         }
 
-        let code = JobLogic::get_job_code(code, formal_args, actual_args.clone())?;
+        let code = JobLogic::get_job_code(code, default_args, actual_args.clone())?;
 
         let mut target = match node.current_node.task.clone() {
             Task::Standard(standard_job) => standard_job.target.unwrap_or_default(),
@@ -518,7 +518,7 @@ impl<'a> WorkflowLogic<'a> {
                 custom_job.executor_id.clone()
             ))?;
 
-        let command_slice: Vec<&str> = executor_record.command.split(" ").collect();
+        let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&executor_record);
 
         let upload_file: Option<UploadFile> =
             if let Some(uploadfile) = custom_job.upload_file.clone() {
@@ -534,14 +534,9 @@ impl<'a> WorkflowLogic<'a> {
         let dispatch_params = automate::DispatchJobParams {
             base_job: automate::BaseJob {
                 eid: node.current_node.id.clone(),
-                cmd_name: command_slice
-                    .get(0)
-                    .map_or("".to_string(), |&v| v.to_owned()),
+                cmd_name,
                 code: custom_job.code.clone(),
-                args: command_slice
-                    .get(1..)
-                    .map_or(vec![], |v| v.into_iter().map(|&v| v.to_owned()).collect()),
-                upload_file: upload_file.clone(),
+                args: cmd_args,
                 timeout: 60,
                 max_retry: Some(1),
                 max_parallel: Some(1),
@@ -719,7 +714,7 @@ impl<'a> WorkflowLogic<'a> {
             });
         }
 
-        let command_slice: Vec<&str> = executor_record.command.split(" ").collect();
+        let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&executor_record);
 
         let actual_args = self
             .parse_actual_args(node, job_record.code.clone())
@@ -736,14 +731,9 @@ impl<'a> WorkflowLogic<'a> {
         let dispatch_params = automate::DispatchJobParams {
             base_job: automate::BaseJob {
                 eid: job_record.eid.clone(),
-                cmd_name: command_slice
-                    .get(0)
-                    .map_or("".to_string(), |&v| v.to_owned()),
-
+                cmd_name,
                 code: actual_args.code.clone(),
-                args: command_slice
-                    .get(1..)
-                    .map_or(vec![], |v| v.into_iter().map(|&v| v.to_owned()).collect()),
+                args: cmd_args,
                 upload_file: upload_file.clone(),
                 work_dir: Some(job_record.work_dir.clone()).filter(|v| !v.is_empty()),
                 work_user: Some(job_record.work_user.clone()).filter(|v| !v.is_empty()),

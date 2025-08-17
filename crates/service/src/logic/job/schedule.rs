@@ -367,10 +367,10 @@ impl<'a> JobLogic<'a> {
 
     pub fn get_job_code(
         code: String,
-        formal_args: Option<serde_json::Value>,
+        default_args: Option<serde_json::Value>,
         actual_args: Option<serde_json::Value>,
     ) -> Result<String> {
-        let Some(mut args) = formal_args.clone() else {
+        let Some(mut args) = default_args.clone() else {
             return Ok(code);
         };
 
@@ -389,6 +389,22 @@ impl<'a> JobLogic<'a> {
         let reg = Handlebars::new();
         let val = reg.render_template(&code, &args)?;
         Ok(val)
+    }
+
+    fn get_default_job_args(job_record: &job::Model) -> Result<Option<serde_json::Value>> {
+        let Some(val) = job_record.args.clone() else {
+            return Ok(None);
+        };
+
+        let args: Vec<super::types::JobFormalArg> = serde_json::from_value(val)?;
+
+        let mut ret = json!({});
+
+        for arg in args {
+            ret[arg.name] = serde_json::to_value(&arg)?
+        }
+
+        Ok(Some(ret))
     }
 
     pub async fn dispatch_job(
@@ -457,17 +473,13 @@ impl<'a> JobLogic<'a> {
                         let e = executor_list
                             .get_by_id(v.executor_id)
                             .ok_or(anyhow!("cannot found executor {}", v.executor_id))?;
-                        let command_slice: Vec<&str> = e.command.split(" ").collect();
+                        let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&e);
 
                         ret.push(BundleScript {
                             eid: v.eid.clone(),
-                            cmd_name: command_slice
-                                .get(0)
-                                .map_or("".to_string(), |&v| v.to_owned()),
+                            cmd_name,
                             code: v.code.clone(),
-                            args: command_slice
-                                .get(1..)
-                                .map_or(vec![], |v| v.into_iter().map(|&v| v.to_owned()).collect()),
+                            args: cmd_args,
                         })
                     }
 
@@ -476,23 +488,16 @@ impl<'a> JobLogic<'a> {
                 None => (None, "default".to_string()),
             };
 
-        let command_slice: Vec<&str> = executor_record.command.split(" ").collect();
+        let default_job_args = Self::get_default_job_args(&job_record)?;
+        let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&executor_record);
 
         let dispatch_params = automate::DispatchJobParams {
             base_job: automate::BaseJob {
                 eid: job_record.eid.clone(),
-                cmd_name: command_slice
-                    .get(0)
-                    .map_or("".to_string(), |&v| v.to_owned()),
+                cmd_name,
                 bundle_script,
-                code: Self::get_job_code(
-                    job_record.code.clone(),
-                    job_record.args.clone(),
-                    actual_args,
-                )?,
-                args: command_slice
-                    .get(1..)
-                    .map_or(vec![], |v| v.into_iter().map(|&v| v.to_owned()).collect()),
+                code: Self::get_job_code(job_record.code.clone(), default_job_args, actual_args)?,
+                args: cmd_args,
                 upload_file: upload_file.clone(),
                 work_dir: Some(job_record.work_dir.clone()).filter(|v| !v.is_empty()),
                 work_user: Some(job_record.work_user.clone()).filter(|v| !v.is_empty()),
