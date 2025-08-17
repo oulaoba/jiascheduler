@@ -1,11 +1,10 @@
 use anyhow::{Result, anyhow};
-use entity::{job, prelude::WorkflowProcessNodeTask, workflow_process_node_task};
 use redis_macros::{FromRedisValue, ToRedisArgs};
-use sea_orm::{EntityTrait, FromQueryResult, QueryFilter, prelude::DateTimeLocal};
+use sea_orm::{FromQueryResult, prelude::DateTimeLocal};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-use crate::logic::{job::JobLogic, workflow::condition};
+use crate::logic::workflow::condition;
 #[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
 pub enum NodeType {
     #[default]

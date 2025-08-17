@@ -6,7 +6,6 @@ use crate::logic::executor::ExecutorLogic;
 use crate::logic::job::JobLogic;
 use crate::logic::job::types::{DispatchData, DispatchResult, DispatchTarget};
 use crate::logic::types::UserInfo;
-use crate::logic::workflow::condition;
 use crate::logic::workflow::types::{
     self, CustomJob, NodeStatus, NodeType, ProcessStatus, StandardJob, Task, TaskType,
     WorkflowNode, WorkflowNodeActualArgs, WorkflowProcessArgs,
@@ -22,7 +21,6 @@ use entity::{
     executor, instance, job, team, workflow, workflow_process, workflow_process_edge,
     workflow_process_node, workflow_process_node_task, workflow_version,
 };
-use expr::Context;
 use local_ip_address::local_ip;
 use redis::streams::{StreamMaxlen, StreamReadOptions, StreamReadReply};
 use redis::{AsyncCommands, from_redis_value};
@@ -520,7 +518,7 @@ impl<'a> WorkflowLogic<'a> {
 
         let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&executor_record);
 
-        let upload_file: Option<UploadFile> =
+        let _upload_file: Option<UploadFile> =
             if let Some(uploadfile) = custom_job.upload_file.clone() {
                 let data = fs::read(uploadfile.clone()).await?;
                 Some(UploadFile {
