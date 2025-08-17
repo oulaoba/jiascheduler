@@ -424,7 +424,7 @@ impl<'a> WorkflowLogic<'a> {
         let mut actual_args = actual.map_or(None, |v| Some(v.args.clone()));
         let mut default_args: Option<serde_json::Value> = None;
 
-        for arg in formal_args {
+        for arg in formal_args.clone() {
             if let Some(assignment) = arg.node_assignment {
                 if assignment.is_first_instance_result {
                     let record = WorkflowProcessNodeTask::find()
@@ -474,14 +474,22 @@ impl<'a> WorkflowLogic<'a> {
             Task::Custom(custom_job) => custom_job.target.unwrap_or_default(),
             Task::None => vec![],
         };
+
         if let Some(current_args) = actual
             && current_args.target.len() > 0
         {
             target = current_args.target.clone();
         }
 
+        if target.len() == 0 {
+            target = node
+                .process_args
+                .as_ref()
+                .map_or(vec![], |v| v.default_target.clone().unwrap_or_default());
+        }
+
         node.actual_args = Some(WorkflowNodeActualArgs {
-            formal: vec![],
+            formal: formal_args,
             args: actual_args,
             code: code,
             target,
@@ -517,6 +525,8 @@ impl<'a> WorkflowLogic<'a> {
             ))?;
 
         let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&executor_record);
+        let eid = node.current_node.id.clone();
+        let schedule_id = node.process_id.clone();
 
         let _upload_file: Option<UploadFile> =
             if let Some(uploadfile) = custom_job.upload_file.clone() {
@@ -531,7 +541,7 @@ impl<'a> WorkflowLogic<'a> {
 
         let dispatch_params = automate::DispatchJobParams {
             base_job: automate::BaseJob {
-                eid: node.current_node.id.clone(),
+                eid,
                 cmd_name,
                 code: custom_job.code.clone(),
                 args: cmd_args,
@@ -547,7 +557,7 @@ impl<'a> WorkflowLogic<'a> {
             fields: Some(json!({"is_workflow":true})),
             restart_interval: None,
             created_user: node.created_user.clone(),
-            schedule_id: node.process_id.clone(),
+            schedule_id,
             timer_expr: None,
             is_sync: false,
             action: automate::JobAction::Exec,
@@ -713,6 +723,8 @@ impl<'a> WorkflowLogic<'a> {
         }
 
         let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&executor_record);
+        let eid = node.current_node.id.clone();
+        let schedule_id = node.process_id.clone();
 
         let actual_args = self
             .parse_actual_args(node, job_record.code.clone())
@@ -728,7 +740,7 @@ impl<'a> WorkflowLogic<'a> {
 
         let dispatch_params = automate::DispatchJobParams {
             base_job: automate::BaseJob {
-                eid: job_record.eid.clone(),
+                eid,
                 cmd_name,
                 code: actual_args.code.clone(),
                 args: cmd_args,
@@ -742,14 +754,14 @@ impl<'a> WorkflowLogic<'a> {
                 is_workflow: true,
                 ..Default::default()
             },
-            run_id: IdGenerator::get_run_id(),
+            run_id: node.run_id.clone(),
             instance_id: None,
             fields: Some(json!({
                 "workflow_node": serde_json::to_value(& *node)?
             })),
             restart_interval: None,
             created_user: node.created_user.clone(),
-            schedule_id: IdGenerator::get_schedule_uid(),
+            schedule_id,
             timer_expr: None,
             is_sync: false,
             action: automate::JobAction::Exec,
@@ -873,7 +885,9 @@ impl<'a> WorkflowLogic<'a> {
                         run_id: Set(node.run_id.clone()),
                         task_status: Set("prepare".to_string()),
                         bind_ip: Set(v.bind_ip.clone()),
+                        dispatch_result: Set(Some(serde_json::to_value(&v).unwrap())),
                         created_user: Set(node.created_user.clone()),
+                        output: Set("".to_string()),
                         ..Default::default()
                     })
                 })
@@ -888,8 +902,6 @@ impl<'a> WorkflowLogic<'a> {
     }
 
     pub async fn handle_service_task(&self, node: &mut WorkflowNode) -> Result<()> {
-        info!("{}", serde_json::to_string_pretty(&node)?);
-
         match node.current_node.task {
             Task::Standard(ref standard_job) => {
                 self.dispatch_job(node, &standard_job.clone()).await?;
@@ -924,7 +936,7 @@ impl<'a> WorkflowLogic<'a> {
         let ready_edges = WorkflowProcessEdge::find()
             .filter(workflow_process_edge::Column::ProcessId.eq(node.process_id.clone()))
             .filter(workflow_process_edge::Column::TargetNodeId.eq(node.current_node.id.clone()))
-            .filter(workflow_process_node::Column::RunId.eq(node.run_id.clone()))
+            .filter(workflow_process_edge::Column::RunId.eq(node.run_id.clone()))
             .all(&self.ctx.db)
             .await?;
 
@@ -933,14 +945,16 @@ impl<'a> WorkflowLogic<'a> {
             .all(|&v1| ready_edges.iter().any(|v2| v2.edge_id == v1.id));
 
         if is_ready {
-            WorkflowProcess::update(workflow_process::ActiveModel {
-                current_node_id: Set(node.current_node.id.to_string()),
-                current_node_status: Set(NodeStatus::Running.to_string()),
-                current_run_id: Set(node.run_id.to_string()),
-                ..Default::default()
-            })
-            .exec(&self.ctx.db)
-            .await?;
+            WorkflowProcess::update_many()
+                .set(workflow_process::ActiveModel {
+                    current_node_id: Set(node.current_node.id.to_string()),
+                    current_node_status: Set(NodeStatus::Running.to_string()),
+                    current_run_id: Set(node.run_id.to_string()),
+                    ..Default::default()
+                })
+                .filter(workflow_process::Column::ProcessId.eq(&node.process_id))
+                .exec(&self.ctx.db)
+                .await?;
 
             WorkflowProcessNode::insert(workflow_process_node::ActiveModel {
                 process_id: Set(node.process_id.to_string()),
@@ -971,31 +985,34 @@ impl<'a> WorkflowLogic<'a> {
                 let mut workflow_node = node.clone();
                 workflow_node.reached_edge = Some(edge.clone());
                 workflow_node.current_node = next_node.clone();
+
                 self.flow_next(workflow_node).await?;
             }
         }
-        todo!();
+        Ok(())
     }
 
     pub async fn handle_end_event(&self, node: &WorkflowNode) -> Result<()> {
         // update node status
-        WorkflowProcessNode::update(workflow_process_node::ActiveModel {
-            node_status: Set(NodeStatus::End.to_string()),
-            ..Default::default()
-        })
-        .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
-        .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
-        .exec(&self.ctx.db)
-        .await?;
+        WorkflowProcessNode::update_many()
+            .set(workflow_process_node::ActiveModel {
+                node_status: Set(NodeStatus::End.to_string()),
+                ..Default::default()
+            })
+            .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
+            .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
+            .exec(&self.ctx.db)
+            .await?;
 
         // update process status
-        WorkflowProcess::update(workflow_process::ActiveModel {
-            process_status: Set(ProcessStatus::End.to_string()),
-            ..Default::default()
-        })
-        .filter(workflow_process::Column::ProcessId.eq(&node.process_id))
-        .exec(&self.ctx.db)
-        .await?;
+        WorkflowProcess::update_many()
+            .set(workflow_process::ActiveModel {
+                process_status: Set(ProcessStatus::End.to_string()),
+                ..Default::default()
+            })
+            .filter(workflow_process::Column::ProcessId.eq(&node.process_id))
+            .exec(&self.ctx.db)
+            .await?;
 
         Ok(())
     }
@@ -1017,7 +1034,7 @@ impl<'a> WorkflowLogic<'a> {
         if let Err(e) = ret {
             error!(
                 "failed handle workflow node {e}, node: {:?}",
-                serde_json::to_string_pretty(&node).unwrap_or_default()
+                serde_json::to_string(&node).unwrap_or_default()
             );
         }
 
@@ -1055,16 +1072,17 @@ impl<'a> WorkflowLogic<'a> {
             );
         }
 
-        WorkflowProcessNodeTask::update(workflow_process_node_task::ActiveModel {
-            task_status: Set(run_status.to_string()),
-            exit_code: params.exit_code.map_or(NotSet, |v| Set(v.into())),
-            exit_status: params.exit_status.map_or(NotSet, |v| Set(v)),
-            output: Set(output),
-            ..Default::default()
-        })
-        .filter(cond)
-        .exec(&self.ctx.db)
-        .await?;
+        WorkflowProcessNodeTask::update_many()
+            .set(workflow_process_node_task::ActiveModel {
+                task_status: Set(run_status.to_string()),
+                exit_code: params.exit_code.map_or(NotSet, |v| Set(v.into())),
+                exit_status: params.exit_status.map_or(NotSet, |v| Set(v)),
+                output: Set(output),
+                ..Default::default()
+            })
+            .filter(cond)
+            .exec(&self.ctx.db)
+            .await?;
 
         let not_ok = WorkflowProcessNodeTask::find()
             .filter(workflow_process_node_task::Column::ProcessId.eq(&process_id))
@@ -1073,25 +1091,27 @@ impl<'a> WorkflowLogic<'a> {
             .one(&self.ctx.db)
             .await?;
         if not_ok.is_none() {
-            WorkflowProcessNode::update(workflow_process_node::ActiveModel {
-                node_status: Set(NodeStatus::End.to_string()),
-                ..Default::default()
-            })
-            .filter(workflow_process_node::Column::ProcessId.eq(&process_id))
-            .filter(workflow_process_node::Column::NodeId.eq(&node_id))
-            .filter(workflow_process_node::Column::RunId.eq(&run_id))
-            .exec(&self.ctx.db)
-            .await?;
+            WorkflowProcessNode::update_many()
+                .set(workflow_process_node::ActiveModel {
+                    node_status: Set(NodeStatus::End.to_string()),
+                    ..Default::default()
+                })
+                .filter(workflow_process_node::Column::ProcessId.eq(&process_id))
+                .filter(workflow_process_node::Column::NodeId.eq(&node_id))
+                .filter(workflow_process_node::Column::RunId.eq(&run_id))
+                .exec(&self.ctx.db)
+                .await?;
 
-            WorkflowProcess::update(workflow_process::ActiveModel {
-                current_node_id: Set(node_id.to_string()),
-                current_node_status: Set(NodeStatus::End.to_string()),
-                current_run_id: Set(run_id.to_string()),
-                ..Default::default()
-            })
-            .filter(workflow_process::Column::ProcessId.eq(&process_id))
-            .exec(&self.ctx.db)
-            .await?;
+            WorkflowProcess::update_many()
+                .set(workflow_process::ActiveModel {
+                    current_node_id: Set(node_id.to_string()),
+                    current_node_status: Set(NodeStatus::End.to_string()),
+                    current_run_id: Set(run_id.to_string()),
+                    ..Default::default()
+                })
+                .filter(workflow_process::Column::ProcessId.eq(&process_id))
+                .exec(&self.ctx.db)
+                .await?;
 
             let Some(fields) = params.fields else {
                 anyhow::bail!("fields is none");
@@ -1142,14 +1162,13 @@ impl<'a> WorkflowLogic<'a> {
         let (process_id, run_id) = (nanoid::nanoid!(), nanoid::nanoid!());
 
         self.flow_next(WorkflowNode {
-            created_user: user_info.user_id.clone(),
+            created_user: user_info.username.clone(),
             process_id: process_id.clone(),
             run_id,
             origin_nodes: nodes,
             origin_edges: edges,
             user_variables: json!({}),
             process_args: process_args.clone(),
-            eval_val: false,
             flow_depth: 0,
             actual_args: None,
             reached_edge: None,
@@ -1207,12 +1226,11 @@ impl<'a> WorkflowLogic<'a> {
                 .xread_options(&[Self::WORKFLOW_TOPIC], &[">"], &opts)
                 .await?;
 
-            match conn
+            if let Err(e) = conn
                 .xtrim::<_, u64>(Self::WORKFLOW_TOPIC, StreamMaxlen::Equals(5000))
                 .await
             {
-                Ok(n) => debug!("trim stream {} {n} entries", Self::WORKFLOW_TOPIC),
-                Err(e) => error!("failed to trim stream - {e}"),
+                error!("failed to trim stream - {e}");
             };
 
             for stream_key in ret.keys {

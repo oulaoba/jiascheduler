@@ -122,6 +122,7 @@ pub struct BaseJob {
     pub work_user: Option<String>,
     pub max_retry: Option<u8>,
     pub max_parallel: Option<u32>,
+    #[serde(default)]
     pub is_workflow: bool,
 }
 

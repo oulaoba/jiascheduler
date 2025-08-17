@@ -238,7 +238,6 @@ pub struct WorkflowNode {
     pub origin_edges: Vec<EdgeConfig>,
     pub user_variables: serde_json::Value,
     pub process_args: Option<WorkflowProcessArgs>,
-    pub eval_val: bool,
     pub flow_depth: u32,
     pub actual_args: Option<WorkflowNodeActualArgs>,
     pub reached_edge: Option<EdgeConfig>,

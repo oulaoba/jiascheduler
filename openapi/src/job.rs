@@ -120,6 +120,7 @@ pub async fn instance_health_check(state: AppState) {
 
 pub async fn update_job_status(state: AppState, v: UpdateJobParams) -> Result<()> {
     let svc = state.service();
+
     if v.base_job.is_workflow {
         svc.workflow.update_node_status(v).await?;
     } else {

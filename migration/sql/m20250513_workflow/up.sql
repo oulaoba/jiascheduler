@@ -40,6 +40,7 @@ CREATE TABLE `workflow_process` (
     `process_status` varchar(100) NOT NULL DEFAULT 'start_process' COMMENT 'process status',
     `current_node_id` varchar(100) NOT NULL DEFAULT '' COMMENT 'current node id',
     `current_node_status` varchar(100) NOT NULL DEFAULT '' COMMENT 'current node status',
+    `current_run_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT 'current run id',
     `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'creator username',
     `created_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
     `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',

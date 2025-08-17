@@ -12,13 +12,12 @@ pub struct Model {
     pub run_id: String,
     pub edge_id: String,
     pub edge_type: String,
-    pub edge_val: String,
+    pub eval_val: String,
     pub props: Option<Json>,
     pub source_node_id: String,
     pub target_node_id: String,
     pub created_user: String,
     pub created_time: DateTimeLocal,
-    pub updated_time: DateTimeLocal,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

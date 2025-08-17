@@ -89,12 +89,11 @@ impl Bus {
                 .xread_options(&[Self::JOB_TOPIC], &[">"], &opts)
                 .await?;
 
-            match conn
+            if let Err(e) = conn
                 .xtrim::<_, u64>(Self::JOB_TOPIC, StreamMaxlen::Equals(5000))
                 .await
             {
-                Ok(n) => debug!("trim stream {} {n} entries", Self::JOB_TOPIC),
-                Err(e) => error!("failed to trim stream - {e}"),
+                error!("failed to trim stream - {e}");
             };
 
             for stream_key in ret.keys {
