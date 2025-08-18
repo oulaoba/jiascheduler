@@ -389,6 +389,17 @@ impl<'a> WorkflowLogic<'a> {
     pub async fn handle_start_event(&self, node: &WorkflowNode) -> Result<()> {
         let next_point = node.get_next_nodes()?;
 
+        WorkflowProcessNode::update_many()
+            .set(workflow_process_node::ActiveModel {
+                node_status: Set(NodeStatus::End.to_string()),
+                ..Default::default()
+            })
+            .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
+            .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
+            .filter(workflow_process_node::Column::RunId.eq(&node.run_id))
+            .exec(&self.ctx.db)
+            .await?;
+
         for point in next_point {
             let mut next_node = node.clone();
             next_node.reached_edge = Some(point.0.clone());
@@ -973,11 +984,25 @@ impl<'a> WorkflowLogic<'a> {
 
     pub async fn handle_exclusive_gateway(&self, node: &WorkflowNode) -> Result<()> {
         let next_edges = node.get_next_edges();
+
+        WorkflowProcessNode::update_many()
+            .set(workflow_process_node::ActiveModel {
+                node_status: Set(NodeStatus::End.to_string()),
+                ..Default::default()
+            })
+            .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
+            .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
+            .filter(workflow_process_node::Column::RunId.eq(&node.run_id))
+            .exec(&self.ctx.db)
+            .await?;
+
         for edge in next_edges {
-            let Some(ref c) = edge.condition else {
-                continue;
+            let pass = if let Some(ref c) = edge.condition {
+                c.eval(self.ctx, node).await?
+            } else {
+                true
             };
-            let pass = c.eval(self.ctx, node).await?;
+
             if pass {
                 let Some(next_node) = node.get_next_node_by_edge(edge) else {
                     anyhow::bail!("failed get next node");
@@ -1008,6 +1033,7 @@ impl<'a> WorkflowLogic<'a> {
         WorkflowProcess::update_many()
             .set(workflow_process::ActiveModel {
                 process_status: Set(ProcessStatus::End.to_string()),
+                current_node_status: Set(NodeStatus::End.to_string()),
                 ..Default::default()
             })
             .filter(workflow_process::Column::ProcessId.eq(&node.process_id))
