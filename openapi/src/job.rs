@@ -102,7 +102,6 @@ pub async fn instance_health_check(state: AppState) {
         loop {
             let ok = is_master.read().await;
             if *ok {
-                info!("start offline inactive instance");
                 let _ = svc
                     .instance
                     .offline_inactive_instance(60)

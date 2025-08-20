@@ -22,7 +22,7 @@ use sea_query::{OnConflict, Query};
 
 use serde_json::{Value, json};
 use tokio::fs;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     IdGenerator,
@@ -395,6 +395,10 @@ impl<'a> JobLogic<'a> {
         let Some(val) = job_record.args.clone() else {
             return Ok(None);
         };
+
+        if !val.is_array() {
+            return Ok(None);
+        }
 
         let args: Vec<super::types::JobFormalArg> = serde_json::from_value(val)?;
 

@@ -22,6 +22,7 @@ use poem_openapi::{
 };
 use sea_orm::{ActiveValue::NotSet, Set};
 use serde_json::json;
+use tracing::info;
 use types::CompletedCallbackOpts;
 pub mod types {
     use std::collections::HashMap;
@@ -699,14 +700,13 @@ impl JobApi {
             return Err(NoPermission().into());
         }
 
-        // let args2: logic::job::types::JobFormalArg = req.args[0].into();
-
         let args: Vec<logic::job::types::JobFormalArg> =
             req.args.into_iter().map(|v| v.into()).collect();
+
         let args = if args.len() > 0 {
-            None
-        } else {
             Some(serde_json::to_value(args).map_err(std_into_error)?)
+        } else {
+            None
         };
 
         let completed_callback = if let Some(v) = req.completed_callback {

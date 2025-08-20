@@ -421,7 +421,7 @@ impl
     ) -> anyhow::Result<()> {
         let local_ip = get_local_ip();
         let endpoint = get_endpoint(local_ip.to_string(), mac_addr.clone());
-        info!("ssh keepalive current_point {}", endpoint);
+        debug!("ssh keepalive current_point {}", endpoint);
         let addr = format!("{}/ssh/register/{}", addr, endpoint);
         let u = addr.parse::<poem::http::Uri>()?;
         let req = ClientRequestBuilder::new(u)
