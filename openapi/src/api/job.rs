@@ -308,6 +308,7 @@ pub mod types {
         pub action: String,
         pub dispatch_data: Option<Value>,
         pub snapshot_data: Option<Value>,
+        pub actual_args: Option<Value>,
         pub tags: Option<Vec<JobTag>>,
         pub created_user: String,
         pub updated_user: String,
@@ -1229,6 +1230,7 @@ impl JobApi {
                 job_type: v.job_type,
                 dispatch_result: v.dispatch_result,
                 action: v.action,
+                actual_args: v.actual_args,
                 tags: Some(
                     tag_records
                         .iter()

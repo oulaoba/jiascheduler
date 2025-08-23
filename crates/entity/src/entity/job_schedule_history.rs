@@ -19,6 +19,7 @@ pub struct Model {
     pub snapshot_data: Option<Json>,
     pub created_user: String,
     pub updated_user: String,
+    pub actual_args: Option<Json>,
     pub created_time: DateTimeLocal,
     pub updated_time: DateTimeLocal,
     #[serde(default)]

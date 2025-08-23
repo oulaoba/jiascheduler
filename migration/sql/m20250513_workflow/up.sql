@@ -29,7 +29,7 @@ CREATE TABLE `workflow_version` (
     `deleted_at` timestamp NULL DEFAULT NULL COMMENT 'deleted time',
     `deleted_by` varchar(50) NOT NULL DEFAULT '' COMMENT 'deleted by',
     PRIMARY KEY (`id`)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'workflow';
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'workflow version';
 
 CREATE TABLE `workflow_process` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
@@ -46,7 +46,7 @@ CREATE TABLE `workflow_process` (
     `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
     `process_args` json DEFAULT NULL COMMENT 'process args',
     PRIMARY KEY (`id`)
-) ENGINE = InnoDB AUTO_INCREMENT = 23 DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = 'workflow process';
+) ENGINE = InnoDB AUTO_INCREMENT = 23 DEFAULT CHARSET = utf8mb4 COMMENT = 'workflow process';
 
 CREATE TABLE `workflow_process_node` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
@@ -98,3 +98,6 @@ CREATE TABLE `workflow_process_edge` (
     KEY `idx_source_node_id` (`source_node_id`),
     KEY `idx_target_node_id` (`target_node_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '任务进程中连接任务的边线';
+
+ALTER TABLE job_schedule_history
+ADD COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';

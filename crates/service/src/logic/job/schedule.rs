@@ -365,33 +365,16 @@ impl<'a> JobLogic<'a> {
         Ok(())
     }
 
-    pub fn get_job_code(
-        code: String,
-        default_args: Option<serde_json::Value>,
-        actual_args: Option<serde_json::Value>,
-    ) -> Result<String> {
-        let Some(mut args) = default_args.clone() else {
-            return Ok(code);
-        };
-
-        if !args.is_object() {
-            return Ok(code);
-        }
-
-        if let Some(actual_args) = actual_args
-            && actual_args.is_object()
-        {
-            args.as_object_mut()
-                .unwrap()
-                .extend(actual_args.as_object().unwrap().to_owned());
-        }
-
+    pub fn get_job_code(code: String, actual_args: Option<serde_json::Value>) -> Result<String> {
         let reg = Handlebars::new();
-        let val = reg.render_template(&code, &args)?;
+        let val = reg.render_template(&code, dbg!(&actual_args))?;
         Ok(val)
     }
 
-    fn get_default_job_args(job_record: &job::Model) -> Result<Option<serde_json::Value>> {
+    fn get_job_actual_args(
+        job_record: &job::Model,
+        actual_args: Option<serde_json::Value>,
+    ) -> Result<Option<serde_json::Value>> {
         let Some(val) = job_record.args.clone() else {
             return Ok(None);
         };
@@ -405,7 +388,15 @@ impl<'a> JobLogic<'a> {
         let mut ret = json!({});
 
         for arg in args {
-            ret[arg.name] = serde_json::to_value(&arg)?
+            ret[arg.name] = serde_json::to_value(&arg.val)?
+        }
+
+        if let Some(actual_args) = actual_args
+            && actual_args.is_object()
+        {
+            ret.as_object_mut()
+                .unwrap()
+                .extend(actual_args.as_object().unwrap().to_owned());
         }
 
         Ok(Some(ret))
@@ -492,7 +483,7 @@ impl<'a> JobLogic<'a> {
                 None => (None, "default".to_string()),
             };
 
-        let default_job_args = Self::get_default_job_args(&job_record)?;
+        let job_actual_args = Self::get_job_actual_args(&job_record, actual_args)?;
         let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&executor_record);
 
         let dispatch_params = automate::DispatchJobParams {
@@ -500,7 +491,7 @@ impl<'a> JobLogic<'a> {
                 eid: job_record.eid.clone(),
                 cmd_name,
                 bundle_script,
-                code: Self::get_job_code(job_record.code.clone(), default_job_args, actual_args)?,
+                code: Self::get_job_code(job_record.code.clone(), job_actual_args.clone())?,
                 args: cmd_args,
                 upload_file: upload_file.clone(),
                 work_dir: Some(job_record.work_dir.clone()).filter(|v| !v.is_empty()),
@@ -655,6 +646,7 @@ impl<'a> JobLogic<'a> {
             action: Set(action.to_string()),
             dispatch_data: Set(Some(serde_json::to_value(&dispatch_data)?)),
             snapshot_data: Set(Some(serde_json::to_value(job_record)?)),
+            actual_args: Set(Some(serde_json::to_value(job_actual_args)?)),
             created_user: Set(created_user.clone()),
             updated_user: Set(created_user.clone()),
             ..Default::default()

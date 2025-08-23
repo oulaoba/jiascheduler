@@ -433,7 +433,7 @@ impl<'a> WorkflowLogic<'a> {
         };
 
         let mut actual_args = actual.map_or(None, |v| Some(v.args.clone()));
-        let mut default_args: Option<serde_json::Value> = None;
+        let mut args = json!({});
 
         for arg in formal_args.clone() {
             if let Some(assignment) = arg.node_assignment {
@@ -467,18 +467,17 @@ impl<'a> WorkflowLogic<'a> {
                     };
                 }
             } else {
-                default_args = if let Some(mut v) = default_args {
-                    v[arg.name] = serde_json::to_value(arg.val)?;
-                    Some(v)
-                } else {
-                    Some(json!({
-                        arg.name:arg.val,
-                    }))
-                };
+                args[arg.name] = serde_json::to_value(arg.val)?;
             }
         }
 
-        let code = JobLogic::get_job_code(code, default_args, actual_args.clone())?;
+        if let Some(ref v) = actual_args {
+            args.as_object_mut()
+                .unwrap()
+                .extend(v.as_object().unwrap().to_owned());
+        }
+
+        let code = JobLogic::get_job_code(code, Some(args))?;
 
         let mut target = match node.current_node.task.clone() {
             Task::Standard(standard_job) => standard_job.target.unwrap_or_default(),

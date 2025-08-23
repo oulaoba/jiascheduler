@@ -9,3 +9,5 @@ DROP TABLE IF EXISTS `workflow_process_node`;
 DROP TABLE IF EXISTS `workflow_process_node_task`;
 
 DROP TABLE IF EXISTS `workflow_process_edge`;
+
+ALTER TABLE job_schedule_history DROP COLUMN `actual_args`;
