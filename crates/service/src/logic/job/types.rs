@@ -116,6 +116,7 @@ pub struct JobTimerRelatedJobModel {
     pub name: String,
     pub job_name: String,
     pub job_type: String,
+    pub job_args: Option<serde_json::Value>,
     pub executor_id: u64,
     pub executor_name: String,
     pub executor_platform: String,

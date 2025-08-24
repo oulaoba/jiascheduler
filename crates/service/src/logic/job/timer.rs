@@ -6,7 +6,7 @@ use sea_orm::{
 };
 use sea_query::Query;
 
-use super::{types::JobTimerRelatedJobModel, JobLogic};
+use super::{JobLogic, types::JobTimerRelatedJobModel};
 use crate::{
     entity::{executor, job, job_timer, prelude::*, tag_resource, team},
     logic::types::{ResourceType, UserInfo},
@@ -33,6 +33,7 @@ impl<'a> JobLogic<'a> {
     ) -> Result<(Vec<JobTimerRelatedJobModel>, u64)> {
         let mut select = job_timer::Entity::find()
             .column_as(job::Column::Id, "job_id")
+            .column_as(job::Column::Args, "job_args")
             .column_as(job::Column::Name, "job_name")
             .column(job::Column::ExecutorId)
             .column_as(executor::Column::Name, "executor_name")
