@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use entity::{workflow_process_edge, workflow_process_node, workflow_process_node_task};
 use redis_macros::{FromRedisValue, ToRedisArgs};
 use sea_orm::{FromQueryResult, prelude::DateTimeLocal};
 use serde::{Deserialize, Serialize};
@@ -177,6 +178,25 @@ pub struct WorkflowModel {
     pub updated_time: DateTimeLocal,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult)]
+pub struct WorkflowProcessModel {
+    pub id: u64,
+    pub team_id: u64,
+    pub team_name: Option<String>,
+    pub process_id: String,
+    pub process_name: String,
+    pub workflow_id: u64,
+    pub version_id: u64,
+    pub process_args: Option<serde_json::Value>,
+    pub process_status: String,
+    pub current_run_id: String,
+    pub current_node_id: String,
+    pub current_node_status: String,
+    pub created_user: String,
+    pub created_time: DateTimeLocal,
+    pub updated_time: DateTimeLocal,
+}
+
 #[derive(Default)]
 pub struct WorkflowVersionDetailModel {
     pub workflow_id: u64,
@@ -227,6 +247,33 @@ pub struct WorkflowNodeArgs {
 pub struct WorkflowProcessArgs {
     pub default_target: Option<Vec<String>>,
     pub nodes: Option<Vec<WorkflowNodeArgs>>,
+}
+
+#[derive(Default, Serialize, Deserialize, Clone)]
+pub struct WorkflowProcessDetail {
+    pub process_id: String,
+    pub process_name: String,
+    pub created_user: String,
+    pub current_run_id: String,
+    pub current_node_id: String,
+    pub current_node_status: String,
+    pub process_status: String,
+    pub origin_nodes: Option<serde_json::Value>,
+    pub origin_edges: Option<serde_json::Value>,
+    pub process_args: Option<serde_json::Value>,
+    pub completed_nodes: Vec<WorkflowProcessCompletedNode>,
+    pub completed_edges: Vec<WorkflowProcessCompletedEdge>,
+}
+
+#[derive(Default, Serialize, Deserialize, Clone)]
+pub struct WorkflowProcessCompletedNode {
+    pub base: workflow_process_node::Model,
+    pub tasks: Vec<workflow_process_node_task::Model>,
+}
+
+#[derive(Default, Serialize, Deserialize, Clone)]
+pub struct WorkflowProcessCompletedEdge {
+    pub base: workflow_process_edge::Model,
 }
 
 #[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs, Clone)]

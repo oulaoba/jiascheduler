@@ -538,6 +538,94 @@ mod types {
     pub struct StartProcessResp {
         pub process_id: String,
     }
+
+    #[derive(Object, Serialize, Default)]
+    pub struct GetWorkflowProcessDetailResp {
+        pub process_id: String,
+        pub process_name: String,
+        pub created_user: String,
+        pub current_run_id: String,
+        pub current_node_id: String,
+        pub current_node_status: String,
+        pub process_status: String,
+        pub origin_nodes: Option<serde_json::Value>,
+        pub origin_edges: Option<serde_json::Value>,
+        pub process_args: Option<serde_json::Value>,
+        pub completed_nodes: Vec<WorkflowProcessCompletedNode>,
+        pub completed_edges: Vec<WorkflowProcessCompletedEdge>,
+    }
+
+    #[derive(Default, Object, Serialize, Deserialize, Clone)]
+    pub struct WorkflowProcessCompletedNode {
+        pub base: WorkflowProcessNodeRecord,
+        pub tasks: Vec<WorkflowProcessNodeTaskRecord>,
+    }
+
+    #[derive(Default, Object, Serialize, Deserialize, Clone)]
+    pub struct WorkflowProcessNodeRecord {
+        pub id: u64,
+        pub process_id: String,
+        pub run_id: String,
+        pub node_id: String,
+        pub node_status: String,
+        pub created_user: String,
+        pub created_time: String,
+        pub updated_time: String,
+    }
+
+    #[derive(Default, Object, Serialize, Deserialize, Clone)]
+    pub struct WorkflowProcessNodeTaskRecord {
+        pub id: u64,
+        pub process_id: String,
+        pub node_id: String,
+        pub run_id: String,
+        pub task_status: String,
+        pub bind_ip: String,
+        pub exit_code: i64,
+        pub exit_status: String,
+        pub output: String,
+        pub restart_num: i64,
+        pub dispatch_result: Option<serde_json::Value>,
+        pub created_user: String,
+        pub created_time: String,
+        pub updated_time: String,
+    }
+
+    #[derive(Default, Object, Serialize, Deserialize, Clone)]
+    pub struct WorkflowProcessCompletedEdge {
+        pub base: WorkflowProcessEdgeRecord,
+    }
+
+    #[derive(Default, Object, Serialize, Deserialize, Clone)]
+    pub struct WorkflowProcessEdgeRecord {
+        pub id: u64,
+        pub process_id: String,
+        pub run_id: String,
+        pub edge_id: String,
+        pub edge_type: String,
+        pub eval_val: String,
+        pub props: Option<serde_json::Value>,
+        pub source_node_id: String,
+        pub target_node_id: String,
+        pub created_user: String,
+        pub created_time: String,
+    }
+    #[derive(Default, Object, Serialize, Deserialize, Clone)]
+    pub struct WorkflowProcessRecord {
+        pub process_id: String,
+        pub process_name: String,
+        pub created_user: String,
+        pub current_run_id: String,
+        pub current_node_id: String,
+        pub current_node_status: String,
+        pub process_status: String,
+    }
+
+    #[derive(Object, Serialize, Default)]
+    pub struct QueryWorkflowProcessResp {
+        pub total: u64,
+        pub list: Vec<WorkflowProcessRecord>,
+    }
 }
 
 fn set_middleware(ep: impl Endpoint) -> impl Endpoint {
@@ -545,7 +633,7 @@ fn set_middleware(ep: impl Endpoint) -> impl Endpoint {
 }
 pub struct WorkflowApi;
 
-#[OpenApi(prefix_path = "/workflow", tag = super::Tag::Team)]
+#[OpenApi(prefix_path = "/workflow", tag = super::Tag::Workflow)]
 impl WorkflowApi {
     #[oai(path = "/save", method = "post")]
     pub async fn save_workflow(
@@ -813,6 +901,141 @@ impl WorkflowApi {
             nodes: nodes,
             edges: edges,
         })
+    }
+
+    #[oai(path = "/process/detail", method = "get")]
+    pub async fn get_process_detail(
+        &self,
+        state: Data<&AppState>,
+        _user_info: Data<&logic::types::UserInfo>,
+        Query(process_id): Query<String>,
+    ) -> api_response!(types::GetWorkflowProcessDetailResp) {
+        let svc = state.service();
+        let process_detail = svc.workflow.get_process_detail(process_id.clone()).await?;
+
+        let resp = types::GetWorkflowProcessDetailResp {
+            process_id,
+            process_name: process_detail.process_name,
+            created_user: process_detail.created_user,
+            current_run_id: process_detail.current_run_id,
+            current_node_id: process_detail.current_node_id,
+            current_node_status: process_detail.current_node_status,
+            process_status: process_detail.process_status,
+            origin_nodes: process_detail.origin_nodes,
+            origin_edges: process_detail.origin_edges,
+            process_args: process_detail.process_args,
+            completed_nodes: process_detail
+                .completed_nodes
+                .into_iter()
+                .map(|v| types::WorkflowProcessCompletedNode {
+                    base: types::WorkflowProcessNodeRecord {
+                        id: v.base.id,
+                        process_id: v.base.process_id,
+                        run_id: v.base.run_id,
+                        node_id: v.base.node_id,
+                        node_status: v.base.node_status,
+                        created_user: v.base.created_user,
+                        created_time: local_time!(v.base.created_time),
+                        updated_time: local_time!(v.base.updated_time),
+                    },
+                    tasks: v
+                        .tasks
+                        .into_iter()
+                        .map(|v| types::WorkflowProcessNodeTaskRecord {
+                            id: v.id,
+                            process_id: v.process_id,
+                            node_id: v.node_id,
+                            run_id: v.run_id,
+                            task_status: v.task_status,
+                            bind_ip: v.bind_ip,
+                            exit_code: v.exit_code,
+                            exit_status: v.exit_status,
+                            output: v.output,
+                            restart_num: v.restart_num,
+                            dispatch_result: v.dispatch_result,
+                            created_user: v.created_user,
+                            created_time: local_time!(v.created_time),
+                            updated_time: local_time!((v.updated_time)),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            completed_edges: process_detail
+                .completed_edges
+                .into_iter()
+                .map(|v| types::WorkflowProcessCompletedEdge {
+                    base: types::WorkflowProcessEdgeRecord {
+                        id: v.base.id,
+                        process_id: v.base.process_id,
+                        run_id: v.base.run_id,
+                        edge_id: v.base.edge_id,
+                        edge_type: v.base.edge_type,
+                        eval_val: v.base.eval_val,
+                        props: v.base.props,
+                        source_node_id: v.base.source_node_id,
+                        target_node_id: v.base.target_node_id,
+                        created_user: v.base.created_user,
+                        created_time: local_time!(v.base.created_time),
+                    },
+                })
+                .collect(),
+        };
+
+        return_ok!(resp)
+    }
+
+    #[oai(path = "/process/list", method = "get")]
+    pub async fn query_process(
+        &self,
+        state: Data<&AppState>,
+        user_info: Data<&logic::types::UserInfo>,
+        #[oai(default = "types::default_page", validator(maximum(value = "10000")))]
+        Query(page): Query<u64>,
+        #[oai(
+            default = "types::default_page_size",
+            validator(maximum(value = "10000"))
+        )]
+        Query(page_size): Query<u64>,
+        Query(search_username): Query<Option<String>>,
+        Query(default_id): Query<Option<u64>>,
+        Query(process_name): Query<Option<String>>,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+    ) -> api_response!(types::QueryWorkflowProcessResp) {
+        let search_username = if state.can_manage_job(&user_info.user_id).await? {
+            search_username
+        } else {
+            team_id.map_or_else(|| Some(user_info.username.clone()), |_| search_username)
+        };
+
+        let svc = state.service();
+        let ret = svc
+            .workflow
+            .get_workflow_process_list(
+                &user_info,
+                search_username.as_deref(),
+                default_id,
+                team_id,
+                process_name,
+                page,
+                page_size,
+            )
+            .await?;
+
+        let list = ret
+            .0
+            .into_iter()
+            .map(|v| types::WorkflowProcessRecord {
+                process_id: v.process_id,
+                process_name: v.process_name,
+                created_user: v.created_user,
+                current_run_id: v.current_run_id,
+                current_node_id: v.current_node_id,
+                current_node_status: v.current_node_status,
+                process_status: v.process_status,
+            })
+            .collect();
+
+        return_ok!(types::QueryWorkflowProcessResp { total: ret.1, list })
     }
 
     #[oai(path = "/start-process", method = "post")]

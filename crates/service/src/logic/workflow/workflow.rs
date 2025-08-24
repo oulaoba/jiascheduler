@@ -88,6 +88,52 @@ impl<'a> WorkflowLogic<'a> {
         Ok((ret, total))
     }
 
+    pub async fn get_workflow_process_list(
+        &self,
+        _user_info: &UserInfo,
+        created_user: Option<&str>,
+        default_id: Option<u64>,
+        team_id: Option<u64>,
+        name: Option<String>,
+        page: u64,
+        page_size: u64,
+    ) -> Result<(Vec<workflow_process::Model>, u64)> {
+        let select = WorkflowProcess::find()
+            .column_as(team::Column::Name, "team_name")
+            .apply_if(team_id, |q, v| q.filter(workflow::Column::TeamId.eq(v)))
+            .apply_if(name, |q, v| {
+                q.filter(workflow_process::Column::ProcessName.contains(v))
+            })
+            .apply_if(created_user, |q, v| {
+                q.filter(workflow_process::Column::CreatedUser.eq(v))
+            })
+            .apply_if(default_id, |q, v| {
+                q.filter(workflow_process::Column::Id.eq(v))
+            })
+            .join_rev(
+                JoinType::LeftJoin,
+                Workflow::belongs_to(WorkflowProcess)
+                    .from(workflow::Column::Id)
+                    .to(workflow_process::Column::WorkflowId)
+                    .into(),
+            )
+            .join_rev(
+                JoinType::LeftJoin,
+                Team::belongs_to(Workflow)
+                    .from(team::Column::Id)
+                    .to(workflow::Column::TeamId)
+                    .into(),
+            );
+        let total = select.clone().count(&self.ctx.db).await?;
+        let ret = select
+            .order_by_desc(workflow_process::Column::Id)
+            .into_model()
+            .paginate(&self.ctx.db, page_size)
+            .fetch_page(page - 1)
+            .await?;
+        Ok((ret, total))
+    }
+
     pub async fn get_workflow_version_list(
         &self,
         _user_info: &UserInfo,
@@ -373,6 +419,80 @@ impl<'a> WorkflowLogic<'a> {
         ret.edges = version_record.edges;
 
         Ok(ret)
+    }
+
+    pub async fn get_process_detail(
+        &self,
+        process_id: String,
+    ) -> Result<types::WorkflowProcessDetail> {
+        let process_record = WorkflowProcess::find()
+            .filter(workflow_process::Column::ProcessId.eq(&process_id))
+            .one(&self.ctx.db)
+            .await?
+            .ok_or(anyhow!("not found"))?;
+
+        let workflow_version_record = WorkflowVersion::find()
+            .filter(workflow_version::Column::WorkflowId.eq(process_record.workflow_id))
+            .filter(workflow_version::Column::Id.eq(process_record.version_id))
+            .one(&self.ctx.db)
+            .await?
+            .ok_or(anyhow!("not found"))?;
+
+        let completed_node = WorkflowProcessNode::find()
+            .filter(workflow_process_node::Column::ProcessId.eq(&process_id))
+            .all(&self.ctx.db)
+            .await?;
+        let completed_node_task = WorkflowProcessNodeTask::find()
+            .filter(workflow_process_node_task::Column::ProcessId.eq(&process_id))
+            .all(&self.ctx.db)
+            .await?;
+        let completed_edge = WorkflowProcessEdge::find()
+            .filter(workflow_process_edge::Column::ProcessId.eq(&process_id))
+            .all(&self.ctx.db)
+            .await?;
+
+        let completed_nodes = completed_node
+            .into_iter()
+            .map(|v| {
+                let node_id = v.node_id.clone();
+                let run_id = v.run_id.clone();
+                let data = types::WorkflowProcessCompletedNode {
+                    base: v,
+                    tasks: completed_node_task
+                        .iter()
+                        .filter_map(|task| {
+                            if task.node_id == node_id && task.run_id == run_id {
+                                Some(task.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                };
+                data
+            })
+            .collect();
+        let completed_edges = completed_edge
+            .into_iter()
+            .map(|v| types::WorkflowProcessCompletedEdge { base: v })
+            .collect();
+
+        let detail = types::WorkflowProcessDetail {
+            process_id,
+            process_name: process_record.process_name,
+            created_user: process_record.created_user,
+            current_run_id: process_record.current_run_id,
+            current_node_id: process_record.current_node_id,
+            current_node_status: process_record.current_node_status,
+            process_status: process_record.process_status,
+            origin_nodes: workflow_version_record.nodes,
+            origin_edges: workflow_version_record.edges,
+            process_args: process_record.process_args,
+            completed_nodes,
+            completed_edges,
+        };
+
+        Ok(detail)
     }
 
     async fn send_msg<'b>(&self, items: &'b [(&'b str, WorkflowNode)]) -> Result<String> {
