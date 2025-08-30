@@ -186,6 +186,7 @@ pub struct WorkflowProcessModel {
     pub process_id: String,
     pub process_name: String,
     pub workflow_id: u64,
+    pub workflow_nodes: Option<serde_json::Value>,
     pub version_id: u64,
     pub process_args: Option<serde_json::Value>,
     pub process_status: String,

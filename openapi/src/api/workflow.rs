@@ -616,6 +616,7 @@ mod types {
         pub process_name: String,
         pub created_user: String,
         pub current_run_id: String,
+        pub current_node_name: String,
         pub current_node_id: String,
         pub current_node_status: String,
         pub process_status: String,
@@ -1024,14 +1025,28 @@ impl WorkflowApi {
         let list = ret
             .0
             .into_iter()
-            .map(|v| types::WorkflowProcessRecord {
-                process_id: v.process_id,
-                process_name: v.process_name,
-                created_user: v.created_user,
-                current_run_id: v.current_run_id,
-                current_node_id: v.current_node_id,
-                current_node_status: v.current_node_status,
-                process_status: v.process_status,
+            .map(|v| {
+                let nodes: Option<Vec<NodeConfig>> = v
+                    .workflow_nodes
+                    .map_or(None, |v| Some(serde_json::from_value(v)))
+                    .transpose()
+                    .unwrap_or(None);
+
+                let current_node = nodes
+                    .iter()
+                    .find_map(|arr| arr.iter().find(|node| node.id == v.current_node_id));
+
+                types::WorkflowProcessRecord {
+                    process_id: v.process_id,
+                    process_name: v.process_name,
+                    created_user: v.created_user,
+                    current_run_id: v.current_run_id,
+                    current_node_id: v.current_node_id,
+                    current_node_name: current_node
+                        .map_or("".to_string(), |node| node.name.to_string()),
+                    current_node_status: v.current_node_status,
+                    process_status: v.process_status,
+                }
             })
             .collect();
 

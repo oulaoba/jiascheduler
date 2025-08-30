@@ -97,9 +97,11 @@ impl<'a> WorkflowLogic<'a> {
         name: Option<String>,
         page: u64,
         page_size: u64,
-    ) -> Result<(Vec<workflow_process::Model>, u64)> {
+    ) -> Result<(Vec<types::WorkflowProcessModel>, u64)> {
         let select = WorkflowProcess::find()
+            .column_as(workflow::Column::TeamId, "team_id")
             .column_as(team::Column::Name, "team_name")
+            .column_as(workflow_version::Column::Nodes, "workflow_nodes")
             .apply_if(team_id, |q, v| q.filter(workflow::Column::TeamId.eq(v)))
             .apply_if(name, |q, v| {
                 q.filter(workflow_process::Column::ProcessName.contains(v))
@@ -122,6 +124,13 @@ impl<'a> WorkflowLogic<'a> {
                 Team::belongs_to(Workflow)
                     .from(team::Column::Id)
                     .to(workflow::Column::TeamId)
+                    .into(),
+            )
+            .join_rev(
+                JoinType::LeftJoin,
+                WorkflowVersion::belongs_to(WorkflowProcess)
+                    .from(workflow_version::Column::Id)
+                    .to(workflow_process::Column::VersionId)
                     .into(),
             );
         let total = select.clone().count(&self.ctx.db).await?;
@@ -440,10 +449,12 @@ impl<'a> WorkflowLogic<'a> {
 
         let completed_node = WorkflowProcessNode::find()
             .filter(workflow_process_node::Column::ProcessId.eq(&process_id))
+            .order_by_desc(workflow_process_node::Column::Id)
             .all(&self.ctx.db)
             .await?;
         let completed_node_task = WorkflowProcessNodeTask::find()
             .filter(workflow_process_node_task::Column::ProcessId.eq(&process_id))
+            .order_by_desc(workflow_process_node_task::Column::Id)
             .all(&self.ctx.db)
             .await?;
         let completed_edge = WorkflowProcessEdge::find()
