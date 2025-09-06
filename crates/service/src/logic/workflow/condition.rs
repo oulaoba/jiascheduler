@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
 use entity::workflow_process_node;
-use expr::Context;
+use expr::{Context, Environment};
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -57,19 +57,117 @@ pub struct Rule {
 impl Condition {
     pub async fn eval(&self, app_ctx: &AppContext, node: &WorkflowNode) -> Result<bool> {
         let mut global_ctx = Context::default();
+        let mut outer_ctx = Context::default();
+        let mut env = Environment::new();
+
+        // compute(op,val,val2,ture)
+        env.add_function("compute", |c| {
+            let mut sum = 0;
+
+            let op = c.args[0].as_string().unwrap();
+            let v1 = c.args.get(1).unwrap();
+            let v2 = c.args.get(2).unwrap();
+            let is_all = c.args[3].as_bool().unwrap();
+
+            match op {
+                ">" => match v1 {
+                    expr::Value::Number(_) => todo!(),
+                    expr::Value::Bool(_) => todo!(),
+                    expr::Value::Float(_) => todo!(),
+                    expr::Value::Nil => todo!(),
+                    expr::Value::String(_) => todo!(),
+                    expr::Value::Array(values) => todo!(),
+                    expr::Value::Map(index_map) => todo!(),
+                },
+                _ => todo!(),
+            }
+
+            Ok(sum.into())
+        });
+
+        if let Some(vars) = node.user_variables.as_object() {
+            vars.iter().for_each(|(k, v)| {
+                let v = v.clone();
+                global_ctx.insert(k.to_string(), v.to_string());
+            });
+        }
 
         for rule in self.rules.iter() {
-            let mut ctx = Context::default();
+            let mut ctx = global_ctx.clone();
             let d = match rule.left_val.val_type {
-                condition::ConditionValType::UserVariables => {
-                    ctx.insert(&rule.left_val.val, "");
-                    match rule.right_val.val_type {
-                        condition::ConditionValType::UserVariables => {
-                            ctx.insert(&rule.right_val.val, "");
+                condition::ConditionValType::UserVariables => match rule.right_val.val_type {
+                    condition::ConditionValType::UserVariables => {
+                        if rule.op == "contains" {
+                            format!("indexOf({}, {}) > 0", rule.left_val.val, rule.right_val.val)
+                        } else {
                             format!("{} {} {}", rule.left_val.val, rule.op, rule.right_val.val)
                         }
+                    }
+                    condition::ConditionValType::Custom => {
+                        ctx.insert("right_val", rule.right_val.val.clone());
+                        if rule.op == "contains" {
+                            format!("indexOf({}, right_val) > 0", rule.left_val.val)
+                        } else {
+                            format!("{} {} right_val", rule.left_val.val, rule.op)
+                        }
+                    }
+                    condition::ConditionValType::ExitCode => {
+                        let data = WorkflowProcessNodeTask::find()
+                            .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
+                            .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
+                            .all(&app_ctx.db)
+                            .await?;
+                        ctx.insert("right_val", expr::to_value(&data)?);
+                        if rule.op == "contains" {
+                            format!(
+                                "all(right_val,{{indexOf(.exit_code,{}) > 0}})",
+                                &rule.left_val.val,
+                            )
+                        } else {
+                            format!(
+                                "all(right_val,{{.exit_code {} {}}})",
+                                rule.op, &rule.left_val.val,
+                            )
+                        }
+                    }
+                    condition::ConditionValType::Output => {
+                        let data = WorkflowProcessNodeTask::find()
+                            .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
+                            .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
+                            .all(&app_ctx.db)
+                            .await?;
+                        ctx.insert("right_val", expr::to_value(&data)?);
+
+                        if rule.op == "contains" {
+                            format!(
+                                "all(right_val,{{indexOf(.output,{}) > 0}})",
+                                &rule.left_val.val,
+                            )
+                        } else {
+                            format!(
+                                "all(right_val,{{.output {} {}}})",
+                                rule.op, &rule.left_val.val,
+                            )
+                        }
+                    }
+                },
+                condition::ConditionValType::Custom => {
+                    ctx.insert("left_value", rule.left_val.val.clone());
+                    match rule.right_val.val_type {
+                        condition::ConditionValType::UserVariables => {
+                            if rule.op == "contains" {
+                                format!("indexOf(left_val, {}) > 0", rule.right_val.val)
+                            } else {
+                                format!("left_value {} {}", rule.op, rule.right_val.val,)
+                            }
+                        }
                         condition::ConditionValType::Custom => {
-                            format!("{} {} {}", rule.left_val.val, rule.op, rule.right_val.val)
+                            ctx.insert("right_value", rule.right_val.val.clone());
+                            if rule.op == "contains" {
+                                format!("indexOf(left_val, {}) > 0", rule.right_val.val)
+                            } else {
+                                format!("left_value {} {}", rule.op, rule.right_val.val,)
+                            }
                         }
                         condition::ConditionValType::ExitCode => {
                             let data = WorkflowProcessNodeTask::find()
@@ -82,12 +180,12 @@ impl Condition {
                                 .all(&app_ctx.db)
                                 .await?;
 
-                            ctx.insert("node_task_result_arr", expr::to_value(&data)?);
-
-                            format!(
-                                "{}(node_task_result_arr, {{.exit_code {} {}}})",
-                                &rule.compute_type, &rule.op, &rule.left_val.val,
-                            )
+                            ctx.insert("right_val", expr::to_value(&data)?);
+                            if rule.op == "contains" {
+                                format!("all(right_val,{{indexOf(.exit_code,left_val) > 0}})",)
+                            } else {
+                                format!("all(right_val,{{.exit_code {} left_val}})", rule.op)
+                            }
                         }
                         condition::ConditionValType::Output => {
                             let data = WorkflowProcessNodeTask::find()
@@ -100,49 +198,15 @@ impl Condition {
                                 .all(&app_ctx.db)
                                 .await?;
 
-                            ctx.insert("node_task_result_arr", expr::to_value(&data)?);
-                            format!(
-                                "{}(node_task_result_arr, {{.output {} {}}})",
-                                &rule.compute_type, &rule.op, &rule.left_val.val,
-                            )
+                            ctx.insert("right_val", expr::to_value(&data)?);
+                            if rule.op == "contains" {
+                                format!("all(right_val,{{indexOf(.output,left_val) > 0}})",)
+                            } else {
+                                format!("all(right_val,{{.output {} left_val}})", rule.op)
+                            }
                         }
                     }
                 }
-                condition::ConditionValType::Custom => match rule.right_val.val_type {
-                    condition::ConditionValType::UserVariables => {
-                        ctx.insert(&rule.right_val.val, "");
-                        format!("{} {} {}", rule.left_val.val, rule.op, rule.right_val.val)
-                    }
-                    condition::ConditionValType::Custom => {
-                        format!("{} {} {}", rule.left_val.val, rule.op, rule.right_val.val)
-                    }
-                    condition::ConditionValType::ExitCode => {
-                        let data = WorkflowProcessNodeTask::find()
-                            .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
-                            .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
-                            .all(&app_ctx.db)
-                            .await?;
-
-                        ctx.insert("node_task_result_arr", expr::to_value(&data)?);
-                        format!(
-                            "{}(node_task_result_arr, {{.exit_code {} {}}})",
-                            &rule.compute_type, &rule.op, &rule.left_val.val,
-                        )
-                    }
-                    condition::ConditionValType::Output => {
-                        let data = WorkflowProcessNodeTask::find()
-                            .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
-                            .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
-                            .all(&app_ctx.db)
-                            .await?;
-
-                        ctx.insert("node_task_result_arr", expr::to_value(&data)?);
-                        format!(
-                            "{}(node_task_result_arr, {{.output {} {}}})",
-                            &rule.compute_type, &rule.op, &rule.left_val.val,
-                        )
-                    }
-                },
                 condition::ConditionValType::ExitCode => {
                     let data = WorkflowProcessNodeTask::find()
                         .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
@@ -150,21 +214,28 @@ impl Condition {
                         .all(&app_ctx.db)
                         .await?;
 
-                    ctx.insert("node_task_result_arr", expr::to_value(&data)?);
+                    ctx.insert("left_val", expr::to_value(&data)?);
                     match rule.right_val.val_type {
                         condition::ConditionValType::UserVariables => {
-                            ctx.insert(&rule.right_val.val, "");
-                            format!(
-                                "{}(node_task_result_arr, {{.exit_code {} {}}})",
-                                &rule.compute_type, &rule.op, &rule.right_val.val,
-                            )
+                            if rule.op == "contains" {
+                                format!(
+                                    "all(left_val,{{indexOf(.exit_code, {}) > 0}})",
+                                    rule.right_val.val
+                                )
+                            } else {
+                                format!(
+                                    "all(left_val,{{.exit_code {} {}}})",
+                                    rule.op, rule.right_val.val
+                                )
+                            }
                         }
                         condition::ConditionValType::Custom => {
-                            ctx.insert("right_var", &rule.right_val.val);
-                            format!(
-                                "{}(node_task_result_arr, {{.exit_code {} right_var}})",
-                                &rule.compute_type, &rule.op,
-                            )
+                            ctx.insert("right_val", &rule.right_val.val);
+                            if rule.op == "contains" {
+                                format!("all(left_val,{{indexOf(.exit_code, right_val) > 0}})",)
+                            } else {
+                                format!("all(left_val,{{.exit_code {} right_value}})", rule.op)
+                            }
                         }
                         condition::ConditionValType::ExitCode => {
                             anyhow::bail!("not support exit code compare to exit code");
@@ -181,21 +252,28 @@ impl Condition {
                         .all(&app_ctx.db)
                         .await?;
 
-                    ctx.insert("node_task_result_arr", expr::to_value(&data)?);
+                    ctx.insert("left_val", expr::to_value(&data)?);
                     match rule.right_val.val_type {
                         condition::ConditionValType::UserVariables => {
-                            ctx.insert(&rule.right_val.val, "");
-                            format!(
-                                "{}(node_task_result_arr, {{.output {} {}}})",
-                                &rule.compute_type, &rule.op, &rule.right_val.val
-                            )
+                            if rule.op == "contains" {
+                                format!(
+                                    "all(left_val,{{indexOf(.output, {}) > 0}})",
+                                    rule.right_val.val
+                                )
+                            } else {
+                                format!(
+                                    "all(left_val,{{.output {} {}}})",
+                                    rule.op, rule.right_val.val
+                                )
+                            }
                         }
                         condition::ConditionValType::Custom => {
-                            ctx.insert("right_var", &rule.right_val.val);
-                            format!(
-                                "{}(node_task_result_arr, {{.output {} right_var}})",
-                                &rule.compute_type, &rule.op
-                            )
+                            ctx.insert("right_val", &rule.right_val.val);
+                            if rule.op == "contains" {
+                                format!("all(left_val,{{indexOf(.output, right_val) > 0}})",)
+                            } else {
+                                format!("all(left_val,{{.output {} right_value}})", rule.op)
+                            }
                         }
                         condition::ConditionValType::ExitCode => {
                             anyhow::bail!("not support output compare to exit code");
@@ -206,14 +284,15 @@ impl Condition {
                     }
                 }
             };
-            let val = expr::eval(d.as_str(), &ctx)?
+            let val = env
+                .eval(d.as_str(), &ctx)?
                 .as_bool()
                 .ok_or(anyhow!("invalid express compare result"))?;
 
-            global_ctx.insert(rule.name.clone(), val);
+            outer_ctx.insert(rule.name.clone(), val);
         }
 
-        expr::eval(&self.expr, &global_ctx)?
+        expr::eval(&self.expr, &outer_ctx)?
             .as_bool()
             .ok_or(anyhow!("invalid express compare result"))
     }
