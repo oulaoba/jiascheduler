@@ -363,13 +363,13 @@ mod types {
         pub left_val: ConditionVal,
         pub op: String,
         pub right_val: ConditionVal,
-        pub compute_type: String,
     }
 
     #[derive(Clone, Object, Serialize, Deserialize)]
     pub struct Condition {
         pub rules: Vec<Rule>,
         pub expr: String,
+        pub logical_op: String,
     }
 
     impl TryInto<logic::workflow::types::EdgeConfig> for EdgeConfig {
@@ -381,6 +381,7 @@ mod types {
                 condition: self.condition.map_or(None, |v| {
                     Some(condition::Condition {
                         expr: v.expr.clone(),
+                        logical_op: v.logical_op,
                         rules: v
                             .rules
                             .iter()
@@ -391,10 +392,9 @@ mod types {
                                     val: r.left_val.val.to_string(),
                                 },
                                 op: r.op.to_string(),
-                                compute_type: r.compute_type.clone(),
                                 right_val: condition::ConditionVal {
                                     val_type: r.right_val.val_type.clone().into(),
-                                    val: r.left_val.val.to_string(),
+                                    val: r.right_val.val.to_string(),
                                 },
                             })
                             .collect(),
@@ -416,6 +416,7 @@ mod types {
                 condition: value.condition.map_or(None, |v| {
                     Some(Condition {
                         expr: v.expr.clone(),
+                        logical_op: v.logical_op.clone(),
                         rules: v
                             .rules
                             .iter()
@@ -426,7 +427,6 @@ mod types {
                                     val: r.left_val.val.to_string(),
                                 },
                                 op: r.op.clone(),
-                                compute_type: r.compute_type.clone(),
                                 right_val: ConditionVal {
                                     val_type: r.right_val.val_type.clone().into(),
                                     val: r.right_val.val.to_string(),

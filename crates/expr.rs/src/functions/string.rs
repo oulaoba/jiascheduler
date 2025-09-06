@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use crate::{bail, Environment, Value};
 
 pub fn add_string_functions(env: &mut Environment) {
@@ -41,6 +43,23 @@ pub fn add_string_functions(env: &mut Environment) {
         }
     });
 
+    env.add_function("string", |c| {
+        if c.args.len() != 1 {
+            bail!("upper() takes one argument");
+        }
+
+        let v = match &c.args[0] {
+            Value::Number(v) => format!("{v}").to_string(),
+            Value::Bool(v) => format!("{v}").to_string(),
+            Value::Float(v) => format!("{v}").to_string(),
+            Value::Nil => format!("<nil>").to_string(),
+            Value::String(v) => v.to_string(),
+            Value::Array(values) => format!("{:?}", values),
+            Value::Map(index_map) => format!("{:?}", index_map),
+        };
+        Ok(v.into())
+    });
+
     env.add_function("lower", |c| {
         if c.args.len() != 1 {
             bail!("lower() takes one argument");
@@ -53,12 +72,21 @@ pub fn add_string_functions(env: &mut Environment) {
     });
 
     env.add_function("split", |c| {
-        if let (Value::String(s), Value::String(sep), None) = (&c.args[0], &c.args[1], c.args.get(2)) {
+        if let (Value::String(s), Value::String(sep), None) =
+            (&c.args[0], &c.args[1], c.args.get(2))
+        {
             Ok(s.split(sep).map(Value::from).collect::<Vec<_>>().into())
-        } else if let (Value::String(s), Value::String(sep), Some(Value::Number(n))) = (&c.args[0], &c.args[1], c.args.get(2)) {
-            Ok(s.splitn(*n as usize, sep).map(Value::from).collect::<Vec<_>>().into())
+        } else if let (Value::String(s), Value::String(sep), Some(Value::Number(n))) =
+            (&c.args[0], &c.args[1], c.args.get(2))
+        {
+            Ok(s.splitn(*n as usize, sep)
+                .map(Value::from)
+                .collect::<Vec<_>>()
+                .into())
         } else {
-            bail!("split() takes a string as the first argument and a string as the second argument");
+            bail!(
+                "split() takes a string as the first argument and a string as the second argument"
+            );
         }
     });
 
@@ -88,7 +116,9 @@ pub fn add_string_functions(env: &mut Environment) {
         if let (Value::String(s), Value::Number(n)) = (&c.args[0], &c.args[1]) {
             Ok(s.repeat(*n as usize + 1).into())
         } else {
-            bail!("repeat() takes a string as the first argument and a number as the second argument");
+            bail!(
+                "repeat() takes a string as the first argument and a number as the second argument"
+            );
         }
     });
 

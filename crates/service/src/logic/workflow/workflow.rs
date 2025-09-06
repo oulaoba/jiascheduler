@@ -1189,7 +1189,7 @@ impl<'a> WorkflowLogic<'a> {
 
         if let Err(e) = ret {
             error!(
-                "failed handle workflow node {e}, node: {:?}",
+                "failed handle workflow node, {e}, node: {:?}",
                 serde_json::to_string(&node).unwrap_or_default()
             );
         }

@@ -1,8 +1,8 @@
 use crate::ast::node::Node;
 use crate::ast::program::Program;
-use crate::functions::{array, string, ExprCall, Function};
-use crate::{bail, Context, Result, Value};
+use crate::functions::{array, string, types, ExprCall, Function};
 use crate::parser::compile;
+use crate::{bail, Context, Result, Value};
 use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use std::fmt;
@@ -66,6 +66,7 @@ impl<'a> Environment<'a> {
         };
         string::add_string_functions(&mut p);
         array::add_array_functions(&mut p);
+        types::add_types_functions(&mut p);
         p
     }
 
@@ -147,7 +148,7 @@ impl<'a> Environment<'a> {
                     .map(|e| self.eval_expr(ctx, e))
                     .collect::<Result<_>>()?;
                 self.eval_func(ctx, ident, args, predicate.map(|l| *l))?
-            },
+            }
             Node::Operation {
                 left,
                 operator,
@@ -160,17 +161,17 @@ impl<'a> Environment<'a> {
                     .map(|e| self.eval_expr(ctx, e))
                     .collect::<Result<_>>()?,
             ), // node => bail!("unexpected node: {node:?}"),
-            Node::Range(start, end) => match (self.eval_expr(ctx, *start)?, self.eval_expr(ctx, *end)?) {
-                (Value::Number(start), Value::Number(end)) => {
-                    Value::Array((start..=end).map(Value::Number).collect())
+            Node::Range(start, end) => {
+                match (self.eval_expr(ctx, *start)?, self.eval_expr(ctx, *end)?) {
+                    (Value::Number(start), Value::Number(end)) => {
+                        Value::Array((start..=end).map(Value::Number).collect())
+                    }
+                    (start, end) => bail!("invalid range: {start:?}..{end:?}"),
                 }
-                (start, end) => bail!("invalid range: {start:?}..{end:?}"),
             }
         };
         Ok(value)
     }
 }
 
-pub(crate) static DEFAULT_ENVIRONMENT: Lazy<Environment> = Lazy::new(|| {
-    Environment::new()
-});
+pub(crate) static DEFAULT_ENVIRONMENT: Lazy<Environment> = Lazy::new(|| Environment::new());

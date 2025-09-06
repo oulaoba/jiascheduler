@@ -1,5 +1,6 @@
-pub mod string;
 pub mod array;
+pub mod string;
+pub mod types;
 
 use crate::Result;
 
@@ -17,7 +18,13 @@ pub struct ExprCall<'a, 'b> {
 }
 
 impl Environment<'_> {
-    pub fn eval_func(&self, ctx: &Context, ident: String, args: Vec<Value>, predicate: Option<Program>) -> Result<Value> {
+    pub fn eval_func(
+        &self,
+        ctx: &Context,
+        ident: String,
+        args: Vec<Value>,
+        predicate: Option<Program>,
+    ) -> Result<Value> {
         let call = ExprCall {
             ident,
             args,
