@@ -623,6 +623,7 @@ mod types {
         pub team_name: Option<String>,
         pub team_id: Option<u64>,
         pub tags: Option<Vec<ResourceTag>>,
+        pub created_time: String,
     }
 
     #[derive(Object, Serialize, Default)]
@@ -1078,6 +1079,7 @@ impl WorkflowApi {
                     ),
                     team_id: v.team_id,
                     team_name: v.team_name,
+                    created_time: local_time!(v.created_time),
                 }
             })
             .collect();

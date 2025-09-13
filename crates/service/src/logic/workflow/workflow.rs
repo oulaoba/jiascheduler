@@ -1166,6 +1166,15 @@ impl<'a> WorkflowLogic<'a> {
             .exec(&self.ctx.db)
             .await?;
 
+        WorkflowProcess::update_many()
+            .set(workflow_process::ActiveModel {
+                current_node_status: Set(NodeStatus::End.to_string()),
+                ..Default::default()
+            })
+            .filter(workflow_process::Column::ProcessId.eq(&node.process_id))
+            .exec(&self.ctx.db)
+            .await?;
+
         for edge in next_edges {
             let pass = if let Some(ref c) = edge.condition {
                 c.eval(self.ctx, node).await?
@@ -1182,17 +1191,9 @@ impl<'a> WorkflowLogic<'a> {
                 workflow_node.current_node = next_node.clone();
 
                 self.flow_next(workflow_node).await?;
-            } else {
-                WorkflowProcess::update_many()
-                    .set(workflow_process::ActiveModel {
-                        current_node_status: Set(NodeStatus::Stop.to_string()),
-                        ..Default::default()
-                    })
-                    .filter(workflow_process::Column::ProcessId.eq(&node.process_id))
-                    .exec(&self.ctx.db)
-                    .await?;
             }
         }
+
         Ok(())
     }
 

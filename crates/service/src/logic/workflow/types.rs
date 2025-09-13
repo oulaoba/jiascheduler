@@ -96,8 +96,8 @@ pub enum NodeStatus {
     Running,
     #[serde(rename = "end")]
     End,
-    #[serde(rename = "stop")]
-    Stop,
+    // #[serde(rename = "stop")]
+    // Stop,
 }
 
 impl Display for NodeStatus {
@@ -106,7 +106,7 @@ impl Display for NodeStatus {
             NodeStatus::Prepare => write!(f, "prepare"),
             NodeStatus::Running => write!(f, "running"),
             NodeStatus::End => write!(f, "end"),
-            NodeStatus::Stop => write!(f, "stop"),
+            // NodeStatus::Stop => write!(f, "stop"),
         }
     }
 }
