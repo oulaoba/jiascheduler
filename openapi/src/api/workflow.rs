@@ -610,7 +610,7 @@ mod types {
         pub created_user: String,
         pub created_time: String,
     }
-    #[derive(Default, Object, Serialize, Deserialize, Clone)]
+    #[derive(Default, Object, Serialize)]
     pub struct WorkflowProcessRecord {
         pub process_id: String,
         pub process_name: String,
@@ -620,6 +620,9 @@ mod types {
         pub current_node_id: String,
         pub current_node_status: String,
         pub process_status: String,
+        pub team_name: Option<String>,
+        pub team_id: Option<u64>,
+        pub tags: Option<Vec<ResourceTag>>,
     }
 
     #[derive(Object, Serialize, Default)]
@@ -725,6 +728,7 @@ impl WorkflowApi {
             validator(maximum(value = "10000"))
         )]
         Query(page_size): Query<u64>,
+        Query(tag_ids): Query<Option<Vec<u64>>>,
         Query(search_username): Query<Option<String>>,
         Query(default_id): Query<Option<u64>>,
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
@@ -743,6 +747,7 @@ impl WorkflowApi {
                 search_username.as_deref(),
                 default_id,
                 team_id,
+                tag_ids,
                 name,
                 page,
                 page_size,
@@ -1000,6 +1005,7 @@ impl WorkflowApi {
         Query(search_username): Query<Option<String>>,
         Query(default_id): Query<Option<u64>>,
         Query(process_name): Query<Option<String>>,
+        Query(tag_ids): Query<Option<Vec<u64>>>,
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
     ) -> api_response!(types::QueryWorkflowProcessResp) {
         let search_username = if state.can_manage_job(&user_info.user_id).await? {
@@ -1016,9 +1022,18 @@ impl WorkflowApi {
                 search_username.as_deref(),
                 default_id,
                 team_id,
+                tag_ids,
                 process_name,
                 page,
                 page_size,
+            )
+            .await?;
+
+        let tag_records = svc
+            .tag
+            .get_all_tag_bind_by_resource_ids(
+                ret.0.iter().map(|v| v.workflow_id).collect(),
+                logic::types::ResourceType::Workflow,
             )
             .await?;
 
@@ -1046,6 +1061,23 @@ impl WorkflowApi {
                         .map_or("".to_string(), |node| node.name.to_string()),
                     current_node_status: v.current_node_status,
                     process_status: v.process_status,
+                    tags: Some(
+                        tag_records
+                            .iter()
+                            .filter_map(|tb| {
+                                if tb.resource_id == v.workflow_id {
+                                    Some(types::ResourceTag {
+                                        id: tb.tag_id,
+                                        tag_name: tb.tag_name.clone(),
+                                    })
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect(),
+                    ),
+                    team_id: v.team_id,
+                    team_name: v.team_name,
                 }
             })
             .collect();

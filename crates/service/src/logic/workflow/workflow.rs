@@ -5,7 +5,8 @@ use crate::IdGenerator;
 use crate::logic::executor::ExecutorLogic;
 use crate::logic::job::JobLogic;
 use crate::logic::job::types::{DispatchData, DispatchResult, DispatchTarget};
-use crate::logic::types::UserInfo;
+use crate::logic::tag;
+use crate::logic::types::{ResourceType, UserInfo};
 use crate::logic::workflow::types::{
     self, CustomJob, NodeStatus, NodeType, ProcessStatus, StandardJob, Task, TaskType,
     WorkflowNode, WorkflowNodeActualArgs, WorkflowProcessArgs,
@@ -18,7 +19,7 @@ use anyhow::{Result, anyhow};
 use automate::bridge::msg::UpdateJobParams;
 use automate::scheduler::types::{RunStatus, UploadFile};
 use entity::{
-    executor, instance, job, team, workflow, workflow_process, workflow_process_edge,
+    executor, instance, job, tag_resource, team, workflow, workflow_process, workflow_process_edge,
     workflow_process_node, workflow_process_node_task, workflow_version,
 };
 use local_ip_address::local_ip;
@@ -26,10 +27,10 @@ use redis::streams::{StreamMaxlen, StreamReadOptions, StreamReadReply};
 use redis::{AsyncCommands, from_redis_value};
 use sea_orm::ActiveValue::{NotSet, Set};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect, QueryTrait,
+    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, JoinType, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait,
 };
-use sea_query::Expr;
+use sea_query::{Expr, Query};
 use serde_json::json;
 use tokio::fs;
 use tracing::{debug, error, info, warn};
@@ -55,11 +56,12 @@ impl<'a> WorkflowLogic<'a> {
         created_user: Option<&str>,
         default_id: Option<u64>,
         team_id: Option<u64>,
+        tag_ids: Option<Vec<u64>>,
         name: Option<String>,
         page: u64,
         page_size: u64,
     ) -> Result<(Vec<types::WorkflowModel>, u64)> {
-        let select = Workflow::find()
+        let mut select = Workflow::find()
             .column_as(team::Column::Name, "team_name")
             .apply_if(team_id, |q, v| q.filter(workflow::Column::TeamId.eq(v)))
             .apply_if(name, |q, v| q.filter(workflow::Column::Name.contains(v)))
@@ -73,6 +75,24 @@ impl<'a> WorkflowLogic<'a> {
                     .to(workflow::Column::TeamId)
                     .into(),
             );
+
+        if let Some(v) = tag_ids {
+            select = select.filter(
+                Condition::any().add(
+                    workflow::Column::Id.in_subquery(
+                        Query::select()
+                            .column(tag_resource::Column::ResourceId)
+                            .and_where(
+                                tag_resource::Column::ResourceType
+                                    .eq(ResourceType::Workflow.to_string())
+                                    .and(tag_resource::Column::TagId.is_in(v)),
+                            )
+                            .from(TagResource)
+                            .to_owned(),
+                    ),
+                ),
+            );
+        }
 
         let total = select.clone().count(&self.ctx.db).await?;
         let ret = select
@@ -94,11 +114,12 @@ impl<'a> WorkflowLogic<'a> {
         created_user: Option<&str>,
         default_id: Option<u64>,
         team_id: Option<u64>,
+        tag_ids: Option<Vec<u64>>,
         name: Option<String>,
         page: u64,
         page_size: u64,
     ) -> Result<(Vec<types::WorkflowProcessModel>, u64)> {
-        let select = WorkflowProcess::find()
+        let mut select = WorkflowProcess::find()
             .column_as(workflow::Column::TeamId, "team_id")
             .column_as(team::Column::Name, "team_name")
             .column_as(workflow_version::Column::Nodes, "workflow_nodes")
@@ -133,6 +154,25 @@ impl<'a> WorkflowLogic<'a> {
                     .to(workflow_process::Column::VersionId)
                     .into(),
             );
+
+        if let Some(v) = tag_ids {
+            select = select.filter(
+                Condition::any().add(
+                    workflow::Column::Id.in_subquery(
+                        Query::select()
+                            .column(tag_resource::Column::ResourceId)
+                            .and_where(
+                                tag_resource::Column::ResourceType
+                                    .eq(ResourceType::Workflow.to_string())
+                                    .and(tag_resource::Column::TagId.is_in(v)),
+                            )
+                            .from(TagResource)
+                            .to_owned(),
+                    ),
+                ),
+            );
+        }
+
         let total = select.clone().count(&self.ctx.db).await?;
         let ret = select
             .order_by_desc(workflow_process::Column::Id)
@@ -1142,6 +1182,15 @@ impl<'a> WorkflowLogic<'a> {
                 workflow_node.current_node = next_node.clone();
 
                 self.flow_next(workflow_node).await?;
+            } else {
+                WorkflowProcess::update_many()
+                    .set(workflow_process::ActiveModel {
+                        current_node_status: Set(NodeStatus::Stop.to_string()),
+                        ..Default::default()
+                    })
+                    .filter(workflow_process::Column::ProcessId.eq(&node.process_id))
+                    .exec(&self.ctx.db)
+                    .await?;
             }
         }
         Ok(())

@@ -96,6 +96,8 @@ pub enum NodeStatus {
     Running,
     #[serde(rename = "end")]
     End,
+    #[serde(rename = "stop")]
+    Stop,
 }
 
 impl Display for NodeStatus {
@@ -104,6 +106,7 @@ impl Display for NodeStatus {
             NodeStatus::Prepare => write!(f, "prepare"),
             NodeStatus::Running => write!(f, "running"),
             NodeStatus::End => write!(f, "end"),
+            NodeStatus::Stop => write!(f, "stop"),
         }
     }
 }
@@ -181,7 +184,7 @@ pub struct WorkflowModel {
 #[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult)]
 pub struct WorkflowProcessModel {
     pub id: u64,
-    pub team_id: u64,
+    pub team_id: Option<u64>,
     pub team_name: Option<String>,
     pub process_id: String,
     pub process_name: String,
