@@ -484,6 +484,7 @@ pub mod types {
         #[oai(validator(min_length = 1, max_length = 50))]
         pub name: String,
         pub timer_expr: TimerExpr,
+        pub job_args: Vec<JobFormalArg>,
         pub info: String,
     }
 
@@ -579,6 +580,7 @@ pub mod types {
         pub executor_platform: String,
         pub team_id: Option<u64>,
         pub team_name: Option<String>,
+        pub job_args: Option<Value>,
         pub restart_interval: u64,
         pub info: String,
         pub tags: Option<Vec<JobTag>>,
@@ -600,6 +602,7 @@ pub mod types {
         pub id: Option<u64>,
         pub eid: String,
         pub restart_interval: u64,
+        pub job_args: Vec<JobFormalArg>,
         #[oai(validator(min_length = 1, max_length = 50))]
         pub name: String,
         #[oai(validator(min_length = 0, max_length = 500))]
@@ -706,9 +709,9 @@ impl JobApi {
             req.args.into_iter().map(|v| v.into()).collect();
 
         let args = if args.len() > 0 {
-            Some(serde_json::to_value(args).map_err(std_into_error)?)
+            Set(Some(serde_json::to_value(args).map_err(std_into_error)?))
         } else {
-            None
+            NotSet
         };
 
         let completed_callback = if let Some(v) = req.completed_callback {
@@ -773,7 +776,7 @@ impl JobApi {
                 display_on_dashboard: Set(req.display_on_dashboard.unwrap_or(false)),
                 created_user,
                 updated_user: Set(user_info.username.clone()),
-                args: Set(args),
+                args: args,
                 team_id: team_id.map_or(NotSet, |v| Set(v)),
                 completed_callback,
                 ..Default::default()
@@ -1799,6 +1802,17 @@ impl JobApi {
             return Err(NoPermission().into());
         }
 
+        let job_args: Vec<logic::job::types::JobFormalArg> =
+            req.job_args.into_iter().map(|v| v.into()).collect();
+
+        let job_args = if job_args.len() > 0 {
+            Set(Some(
+                serde_json::to_value(job_args).map_err(std_into_error)?,
+            ))
+        } else {
+            NotSet
+        };
+
         let ret = svc
             .job
             .save_job_timer(crate::entity::job_timer::ActiveModel {
@@ -1810,6 +1824,7 @@ impl JobApi {
                 )),
                 job_type: Set(req.job_type),
                 info: Set(req.info),
+                job_args,
                 created_user: req.id.map_or(Set(user_info.username.clone()), |_| NotSet),
                 updated_user: Set(user_info.username.clone()),
                 ..Default::default()
@@ -1960,6 +1975,7 @@ impl JobApi {
                 team_name: v.team_name,
                 created_user: v.created_user,
                 updated_user: v.updated_user,
+                job_args: v.job_args,
                 tags: Some(
                     tag_records
                         .iter()
@@ -2011,6 +2027,17 @@ impl JobApi {
             return Err(NoPermission().into());
         }
 
+        let job_args: Vec<logic::job::types::JobFormalArg> =
+            req.job_args.into_iter().map(|v| v.into()).collect();
+
+        let job_args = if job_args.len() > 0 {
+            Set(Some(
+                serde_json::to_value(job_args).map_err(std_into_error)?,
+            ))
+        } else {
+            NotSet
+        };
+
         let ret = svc
             .job
             .save_job_supervisor(job_supervisor::ActiveModel {
@@ -2024,6 +2051,7 @@ impl JobApi {
                         req.restart_interval
                     }
                 }),
+                job_args,
                 info: Set(req.info),
                 created_user: req.id.map_or(Set(user_info.username.clone()), |_| NotSet),
                 updated_user: Set(user_info.username.clone()),

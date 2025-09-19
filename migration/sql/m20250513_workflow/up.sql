@@ -99,5 +99,17 @@ CREATE TABLE `workflow_process_edge` (
     KEY `idx_target_node_id` (`target_node_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '任务进程中连接任务的边线';
 
-ALTER TABLE job_schedule_history
-ADD COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';
+ALTER TABLE
+    job_schedule_history
+ADD
+    COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';
+
+ALTER TABLE
+    job_timer
+ADD
+    COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
+
+ALTER TABLE
+    job_supervisor
+ADD
+    COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';

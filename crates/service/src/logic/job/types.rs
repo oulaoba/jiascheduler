@@ -240,6 +240,7 @@ pub struct JobSupervisorRelatedJobModel {
     pub name: String,
     pub job_id: u64,
     pub job_name: String,
+    pub job_args: Option<serde_json::Value>,
     pub restart_interval: u64,
     pub executor_id: u64,
     pub executor_name: String,

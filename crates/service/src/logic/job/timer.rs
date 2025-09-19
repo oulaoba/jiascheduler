@@ -33,7 +33,6 @@ impl<'a> JobLogic<'a> {
     ) -> Result<(Vec<JobTimerRelatedJobModel>, u64)> {
         let mut select = job_timer::Entity::find()
             .column_as(job::Column::Id, "job_id")
-            .column_as(job::Column::Args, "job_args")
             .column_as(job::Column::Name, "job_name")
             .column(job::Column::ExecutorId)
             .column_as(executor::Column::Name, "executor_name")
