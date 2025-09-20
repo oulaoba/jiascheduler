@@ -1356,6 +1356,40 @@ impl<'a> WorkflowLogic<'a> {
         let edges: Vec<EdgeConfig> =
             serde_json::from_value(version_record.edges.ok_or(anyhow!("invalid edges data"))?)?;
 
+        for v in nodes.iter() {
+            let no_input_target = process_args.is_none()
+                || process_args.as_ref().is_some_and(|v| {
+                    let default_target = v.default_target.as_ref();
+                    v.nodes.as_ref().is_some_and(|v| {
+                        v.iter().any(|v| {
+                            if v.node_id == v.node_id {
+                                return v.target.len() == 0;
+                            }
+                            return false;
+                        })
+                    }) || default_target.is_some_and(|v| v.len() == 0)
+                });
+            match v.task {
+                Task::Standard(ref standard_job) => {
+                    let no_config_target = standard_job.target.is_none()
+                        || standard_job.target.as_ref().is_some_and(|v| v.len() == 0);
+
+                    if no_config_target && no_input_target {
+                        anyhow::bail!("No server node is set for executing tasks");
+                    }
+                }
+                Task::Custom(ref custom_job) => {
+                    let no_config_target = custom_job.target.is_none()
+                        || custom_job.target.as_ref().is_some_and(|v| v.len() == 0);
+
+                    if no_config_target && no_input_target {
+                        anyhow::bail!("No server node is set for executing tasks");
+                    }
+                }
+                Task::None => (),
+            };
+        }
+
         let start_node = nodes
             .iter()
             .find(|&v| v.node_type == NodeType::StartEvent)
