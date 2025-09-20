@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-use entity::{workflow_process_node, workflow_process_node_task};
+use entity::workflow_process_node_task;
 use expr::{Context, Environment};
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};

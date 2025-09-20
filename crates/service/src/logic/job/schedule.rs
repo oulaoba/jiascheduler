@@ -22,7 +22,7 @@ use sea_query::{OnConflict, Query};
 
 use serde_json::{Value, json};
 use tokio::fs;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error};
 
 use crate::{
     IdGenerator,

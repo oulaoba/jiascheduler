@@ -10,7 +10,7 @@ use redis::{
 use redis_macros::{FromRedisValue, ToRedisArgs};
 use serde::{Deserialize, Serialize};
 
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::bridge::msg::{AgentOfflineParams, AgentOnlineParams, HeartbeatParams, UpdateJobParams};
 

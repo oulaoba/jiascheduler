@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use crate::{bail, Environment, Value};
 
 pub fn add_string_functions(env: &mut Environment) {

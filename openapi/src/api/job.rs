@@ -22,7 +22,6 @@ use poem_openapi::{
 };
 use sea_orm::{ActiveValue::NotSet, Set};
 use serde_json::json;
-use tracing::info;
 use types::CompletedCallbackOpts;
 pub mod types {
     use std::collections::HashMap;
