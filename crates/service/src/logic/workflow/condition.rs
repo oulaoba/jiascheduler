@@ -4,6 +4,7 @@ use crate::{entity::prelude::*, state::AppContext};
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+use tracing::info;
 
 use entity::workflow_process_node_task;
 use expr::{Context, Environment};
@@ -58,7 +59,7 @@ impl Condition {
     pub fn get_wrap_val(&self, op: &str, var: &str, is_number: bool) -> String {
         match op {
             ">" | "<" | ">=" | "<=" => format!("float({})", var).to_string(),
-            "==" if is_number => format!("float({})", var).to_string(),
+            "==" | "!=" if is_number => format!("float({})", var).to_string(),
             _ => var.to_string(),
         }
     }
@@ -331,7 +332,7 @@ impl Condition {
                 .eval(d.as_str(), dbg!(&ctx))?
                 .as_bool()
                 .ok_or(anyhow!("invalid express compare result"))?;
-            println!("{}:{}, expr:{}", rule.name, val, d.as_str(),);
+            info!("{}:{}, expr:{}", rule.name, val, d.as_str(),);
 
             outer_ctx.insert(rule.name.clone(), val);
         }

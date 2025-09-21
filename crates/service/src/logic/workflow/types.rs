@@ -222,15 +222,16 @@ pub struct WorkflowVersionDetailModel {
 pub struct WorkflowJobArgs {
     pub name: String,
     pub val: String,
-    pub node_assignment: Option<WorkflowJobArgsAssignment>,
+    pub val_type: String,
+    // pub node_assignment: Option<WorkflowJobArgsAssignment>,
 }
 
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
-pub struct WorkflowJobArgsAssignment {
-    pub source_node_id: String,
-    pub is_first_instance_result: bool,
-    pub is_completed_result: bool,
-}
+// #[derive(Default, Serialize, Deserialize, Clone, Debug)]
+// pub struct WorkflowJobArgsAssignment {
+//     pub source_node_id: String,
+//     pub is_first_instance_result: bool,
+//     pub is_completed_result: bool,
+// }
 
 #[derive(Default, Serialize, Deserialize, Clone)]
 pub struct WorkflowNodeActualArgs {

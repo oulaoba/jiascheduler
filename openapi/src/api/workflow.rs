@@ -96,13 +96,7 @@ mod types {
                             .map(|v| WorkflowJobArgs {
                                 name: v.name.clone(),
                                 val: v.val.clone(),
-                                node_assignment: v.node_assignment.as_ref().map(|v| {
-                                    WorkflowJobArgsAssignment {
-                                        source_node_id: v.source_node_id.clone(),
-                                        is_first_instance_result: v.is_first_instance_result,
-                                        is_completed_result: v.is_completed_result,
-                                    }
-                                }),
+                                val_type: v.val_type.clone(),
                             })
                             .collect(),
                         target: std_job.target,
@@ -123,13 +117,7 @@ mod types {
                             .map(|v| WorkflowJobArgs {
                                 name: v.name.clone(),
                                 val: v.val.clone(),
-                                node_assignment: v.node_assignment.as_ref().map(|v| {
-                                    WorkflowJobArgsAssignment {
-                                        source_node_id: v.source_node_id.clone(),
-                                        is_first_instance_result: v.is_first_instance_result,
-                                        is_completed_result: v.is_completed_result,
-                                    }
-                                }),
+                                val_type: v.val_type.clone(),
                             })
                             .collect(),
                     }),
@@ -156,13 +144,7 @@ mod types {
                             .map(|v| logic::workflow::types::WorkflowJobArgs {
                                 name: v.name.clone(),
                                 val: v.val.clone(),
-                                node_assignment: v.node_assignment.as_ref().map(|v| {
-                                    logic::workflow::types::WorkflowJobArgsAssignment {
-                                        source_node_id: v.source_node_id.clone(),
-                                        is_first_instance_result: v.is_first_instance_result,
-                                        is_completed_result: v.is_completed_result,
-                                    }
-                                }),
+                                val_type: v.val_type.clone(),
                             })
                             .collect(),
                         target: std_job.target,
@@ -182,13 +164,7 @@ mod types {
                             .map(|v| logic::workflow::types::WorkflowJobArgs {
                                 name: v.name.clone(),
                                 val: v.val.clone(),
-                                node_assignment: v.node_assignment.as_ref().map(|v| {
-                                    logic::workflow::types::WorkflowJobArgsAssignment {
-                                        source_node_id: v.source_node_id.clone(),
-                                        is_first_instance_result: v.is_first_instance_result,
-                                        is_completed_result: v.is_completed_result,
-                                    }
-                                }),
+                                val_type: v.val_type.clone(),
                             })
                             .collect(),
                     },
@@ -238,14 +214,7 @@ mod types {
     pub struct WorkflowJobArgs {
         pub name: String,
         pub val: String,
-        pub node_assignment: Option<WorkflowJobArgsAssignment>,
-    }
-
-    #[derive(Default, Object, Serialize, Deserialize, Clone, Debug)]
-    pub struct WorkflowJobArgsAssignment {
-        pub source_node_id: String,
-        pub is_first_instance_result: bool,
-        pub is_completed_result: bool,
+        pub val_type: String,
     }
 
     #[derive(Serialize, Object, Deserialize, Clone, Debug)]
@@ -568,6 +537,7 @@ mod types {
         pub run_id: String,
         pub node_id: String,
         pub node_status: String,
+        pub node_args: Option<serde_json::Value>,
         pub created_user: String,
         pub created_time: String,
         pub updated_time: String,
@@ -941,6 +911,7 @@ impl WorkflowApi {
                         run_id: v.base.run_id,
                         node_id: v.base.node_id,
                         node_status: v.base.node_status,
+                        node_args: v.base.node_args,
                         created_user: v.base.created_user,
                         created_time: local_time!(v.base.created_time),
                         updated_time: local_time!(v.base.updated_time),

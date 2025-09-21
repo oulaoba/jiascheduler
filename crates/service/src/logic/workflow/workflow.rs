@@ -584,15 +584,10 @@ impl<'a> WorkflowLogic<'a> {
         node: &'a mut WorkflowNode,
         code: String,
     ) -> Result<&'a WorkflowNodeActualArgs> {
-        let actual = node.process_args.as_ref().map_or(None, |v| {
-            let Some(current) = v
-                .nodes
+        let process_node_args = node.process_args.as_ref().map_or(None, |v| {
+            v.nodes
                 .iter()
                 .find_map(|v| v.iter().find(|&v| v.node_id == node.current_node.id))
-            else {
-                return None;
-            };
-            Some(current)
         });
 
         let formal_args = match node.current_node.task {
@@ -601,40 +596,25 @@ impl<'a> WorkflowLogic<'a> {
             Task::None => vec![],
         };
 
-        let mut actual_args = actual.map_or(None, |v| Some(v.args.clone()));
+        let mut actual_args = process_node_args.map_or(None, |v| Some(v.args.clone()));
         let mut args = json!({});
 
         for arg in formal_args.clone() {
-            if let Some(assignment) = arg.node_assignment {
-                if assignment.is_first_instance_result {
-                    let record = WorkflowProcessNodeTask::find()
-                        .filter(workflow_process_node_task::Column::ProcessId.eq(&node.process_id))
-                        .one(&self.ctx.db)
-                        .await?;
+            if arg.val_type.eq("dynamic") {
+                let records = WorkflowProcessNodeTask::find()
+                    .filter(workflow_process_node_task::Column::ProcessId.eq(&node.process_id))
+                    .filter(workflow_process_node_task::Column::NodeId.eq(arg.val))
+                    .all(&self.ctx.db)
+                    .await?;
 
-                    actual_args = if let Some(mut v) = actual_args {
-                        v[arg.name] = serde_json::to_value(record)?;
-                        Some(v)
-                    } else {
-                        Some(json!({
-                            arg.name.clone():record,
-                        }))
-                    };
-                } else if assignment.is_completed_result {
-                    let records = WorkflowProcessNodeTask::find()
-                        .filter(workflow_process_node_task::Column::ProcessId.eq(&node.process_id))
-                        .all(&self.ctx.db)
-                        .await?;
-
-                    actual_args = if let Some(mut v) = actual_args {
-                        v[arg.name] = serde_json::to_value(records)?;
-                        Some(v)
-                    } else {
-                        Some(json!({
-                            arg.name.clone():records,
-                        }))
-                    };
-                }
+                actual_args = if let Some(mut v) = actual_args {
+                    v[arg.name] = serde_json::to_value(records)?;
+                    Some(v)
+                } else {
+                    Some(json!({
+                        arg.name.clone():records,
+                    }))
+                };
             } else {
                 args[arg.name] = serde_json::to_value(arg.val)?;
             }
@@ -646,7 +626,7 @@ impl<'a> WorkflowLogic<'a> {
                 .extend(v.as_object().unwrap().to_owned());
         }
 
-        let code = JobLogic::get_job_code(code, Some(args))?;
+        let code = JobLogic::get_job_code(code, Some(args.clone()))?;
 
         let mut target = match node.current_node.task.clone() {
             Task::Standard(standard_job) => standard_job.target.unwrap_or_default(),
@@ -654,7 +634,7 @@ impl<'a> WorkflowLogic<'a> {
             Task::None => vec![],
         };
 
-        if let Some(current_args) = actual
+        if let Some(current_args) = process_node_args
             && current_args.target.len() > 0
         {
             target = current_args.target.clone();
@@ -669,7 +649,7 @@ impl<'a> WorkflowLogic<'a> {
 
         node.actual_args = Some(WorkflowNodeActualArgs {
             formal: formal_args,
-            args: actual_args,
+            args: Some(args),
             code: code,
             target,
         });
@@ -905,6 +885,12 @@ impl<'a> WorkflowLogic<'a> {
         let eid = node.current_node.id.clone();
         let schedule_id = node.process_id.clone();
 
+        let (process_id, node_id, run_id) = (
+            node.process_id.clone(),
+            node.current_node.id.clone(),
+            node.run_id.clone(),
+        );
+
         let actual_args = self
             .parse_actual_args(node, job_record.code.clone())
             .await?;
@@ -916,6 +902,17 @@ impl<'a> WorkflowLogic<'a> {
         if endpoints.len() == 0 {
             anyhow::bail!("cannot found valid instance");
         }
+
+        WorkflowProcessNode::update_many()
+            .set(workflow_process_node::ActiveModel {
+                node_args: Set(Some(serde_json::to_value(actual_args)?)),
+                ..Default::default()
+            })
+            .filter(workflow_process_node::Column::ProcessId.eq(process_id))
+            .filter(workflow_process_node::Column::NodeId.eq(node_id))
+            .filter(workflow_process_node::Column::RunId.eq(run_id))
+            .exec(&self.ctx.db)
+            .await?;
 
         let dispatch_params = automate::DispatchJobParams {
             base_job: automate::BaseJob {

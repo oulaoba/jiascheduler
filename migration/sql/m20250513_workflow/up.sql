@@ -54,6 +54,7 @@ CREATE TABLE `workflow_process_node` (
     `run_id` VARCHAR(50) NOT NULL DEFAULT '' COMMENT 'run id',
     `node_id` varchar(100) NOT NULL DEFAULT '' COMMENT 'process node id',
     `node_status` varchar(100) NOT NULL DEFAULT 'start' COMMENT 'node status:start running, end',
+    `node_args` json DEFAULT NULL COMMENT 'node args',
     `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'creator username',
     `created_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
     `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
@@ -99,17 +100,11 @@ CREATE TABLE `workflow_process_edge` (
     KEY `idx_target_node_id` (`target_node_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '任务进程中连接任务的边线';
 
-ALTER TABLE
-    job_schedule_history
-ADD
-    COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';
+ALTER TABLE job_schedule_history
+ADD COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';
 
-ALTER TABLE
-    job_timer
-ADD
-    COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
+ALTER TABLE job_timer
+ADD COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
 
-ALTER TABLE
-    job_supervisor
-ADD
-    COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
+ALTER TABLE job_supervisor
+ADD COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
