@@ -1504,4 +1504,21 @@ impl<'a> WorkflowLogic<'a> {
             }
         }
     }
+
+    pub async fn delete_process(
+        &self,
+        _user_info: &UserInfo,
+        workflow_id: u64,
+        process_id: String,
+    ) -> Result<u64> {
+        let ret = WorkflowProcess::delete_many()
+            .filter(
+                workflow_process::Column::WorkflowId
+                    .eq(workflow_id)
+                    .and(workflow_process::Column::ProcessId.eq(process_id)),
+            )
+            .exec(&self.ctx.db)
+            .await?;
+        Ok(ret.rows_affected)
+    }
 }

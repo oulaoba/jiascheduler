@@ -601,6 +601,17 @@ mod types {
         pub total: u64,
         pub list: Vec<WorkflowProcessRecord>,
     }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct DeleteProcessReq {
+        pub workflow_id: u64,
+        pub process_id: String,
+    }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct DeleteProcessResp {
+        pub result: u64,
+    }
 }
 
 fn set_middleware(ep: impl Endpoint) -> impl Endpoint {
@@ -1105,5 +1116,29 @@ impl WorkflowApi {
             )
             .await?;
         return_ok!(types::StartProcessResp { process_id })
+    }
+
+    #[oai(path = "/delete-process", method = "post")]
+    async fn delete_process(
+        &self,
+        state: Data<&AppState>,
+        user_info: Data<&logic::types::UserInfo>,
+        Json(req): Json<types::DeleteProcessReq>,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+    ) -> api_response!(types::DeleteProcessResp) {
+        let svc = state.service();
+        if !svc
+            .workflow
+            .can_write_workflow(&user_info, team_id, Some(req.workflow_id))
+            .await?
+        {
+            return_err!("no permission");
+        }
+
+        let ret = svc
+            .workflow
+            .delete_process(&user_info, req.workflow_id, req.process_id)
+            .await?;
+        return_ok!(types::DeleteProcessResp { result: ret })
     }
 }
