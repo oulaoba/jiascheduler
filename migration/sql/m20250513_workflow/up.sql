@@ -108,3 +108,8 @@ ADD COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
 
 ALTER TABLE job_supervisor
 ADD COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
+
+ALTER TABLE workflow_process
+ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+ADD COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL,
+ADD COLUMN deleted_by varchar(50) NOT NULL DEFAULT '' COMMENT '删除人';

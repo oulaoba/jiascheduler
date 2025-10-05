@@ -16,6 +16,7 @@ use crate::{
 use anyhow::{Result, anyhow};
 use automate::bridge::msg::UpdateJobParams;
 use automate::scheduler::types::{RunStatus, UploadFile};
+use chrono::Local;
 use entity::{
     executor, instance, job, tag_resource, team, workflow, workflow_process, workflow_process_edge,
     workflow_process_node, workflow_process_node_task, workflow_version,
@@ -66,6 +67,7 @@ impl<'a> WorkflowLogic<'a> {
             .apply_if(created_user, |q, v| {
                 q.filter(workflow::Column::CreatedUser.eq(v))
             })
+            .filter(workflow::Column::IsDeleted.eq(false))
             .join_rev(
                 JoinType::LeftJoin,
                 Team::belongs_to(Workflow)
@@ -151,7 +153,8 @@ impl<'a> WorkflowLogic<'a> {
                     .from(workflow_version::Column::Id)
                     .to(workflow_process::Column::VersionId)
                     .into(),
-            );
+            )
+            .filter(workflow_process::Column::IsDeleted.eq(false));
 
         if let Some(v) = tag_ids {
             select = select.filter(
@@ -198,7 +201,8 @@ impl<'a> WorkflowLogic<'a> {
             })
             .apply_if(version, |q, v| {
                 q.filter(workflow_version::Column::Version.contains(v))
-            });
+            })
+            .filter(workflow_version::Column::IsDeleted.eq(false));
 
         let total = select.clone().count(&self.ctx.db).await?;
         let ret = select
@@ -1505,18 +1509,148 @@ impl<'a> WorkflowLogic<'a> {
         }
     }
 
+    pub async fn delete_workflow(&self, user_info: &UserInfo, workflow_id: u64) -> Result<u64> {
+        let ret = Workflow::update_many()
+            .set(workflow::ActiveModel {
+                is_deleted: Set(true),
+                deleted_at: Set(Some(Local::now())),
+                deleted_by: Set(user_info.username.clone()),
+                ..Default::default()
+            })
+            .filter(workflow::Column::Id.eq(workflow_id))
+            .exec(&self.ctx.db)
+            .await?;
+
+        TagResource::delete_many()
+            .filter(tag_resource::Column::ResourceType.eq("workflow"))
+            .filter(tag_resource::Column::ResourceId.eq(workflow_id))
+            .exec(&self.ctx.db)
+            .await?;
+        Ok(ret.rows_affected)
+    }
+
     pub async fn delete_process(
         &self,
-        _user_info: &UserInfo,
-        workflow_id: u64,
-        process_id: String,
+        user_info: &UserInfo,
+        username: Option<String>,
+        workflow_id: Option<u64>,
+        process_id: Option<String>,
+        team_id: Option<u64>,
+        is_soft: Option<bool>,
     ) -> Result<u64> {
-        let ret = WorkflowProcess::delete_many()
-            .filter(
-                workflow_process::Column::WorkflowId
-                    .eq(workflow_id)
-                    .and(workflow_process::Column::ProcessId.eq(process_id)),
-            )
+        if is_soft == Some(true) {
+            let ret = WorkflowProcess::update_many()
+                .set(workflow_process::ActiveModel {
+                    is_deleted: Set(true),
+                    deleted_at: Set(Some(Local::now())),
+                    deleted_by: Set(user_info.username.clone()),
+                    ..Default::default()
+                })
+                .apply_if(username, |q, v| {
+                    q.filter(workflow_process::Column::CreatedUser.eq(v))
+                })
+                .apply_if(workflow_id, |q, v| {
+                    q.filter(workflow_process::Column::WorkflowId.eq(v))
+                })
+                .apply_if(process_id, |q, v| {
+                    q.filter(workflow_process::Column::ProcessId.eq(v))
+                })
+                .apply_if(team_id, |q, v| {
+                    q.filter(
+                        workflow_process::Column::WorkflowId.in_subquery(
+                            Query::select()
+                                .column(workflow::Column::Id)
+                                .from(workflow::Entity)
+                                .and_where(workflow::Column::TeamId.eq(v))
+                                .to_owned(),
+                        ),
+                    )
+                })
+                .exec(&self.ctx.db)
+                .await?
+                .rows_affected;
+
+            Ok(ret)
+        } else {
+            let ret = WorkflowProcess::delete_many()
+                .apply_if(username, |q, v| {
+                    q.filter(workflow_process::Column::CreatedUser.eq(v))
+                })
+                .apply_if(workflow_id, |q, v| {
+                    q.filter(workflow_process::Column::WorkflowId.eq(v))
+                })
+                .apply_if(process_id, |q, v| {
+                    q.filter(workflow_process::Column::ProcessId.eq(v))
+                })
+                .apply_if(team_id, |q, v| {
+                    q.filter(
+                        workflow_process::Column::WorkflowId.in_subquery(
+                            Query::select()
+                                .column(workflow::Column::Id)
+                                .from(workflow::Entity)
+                                .and_where(workflow::Column::TeamId.eq(v))
+                                .to_owned(),
+                        ),
+                    )
+                })
+                .exec(&self.ctx.db)
+                .await?
+                .rows_affected;
+            WorkflowProcessNode::delete_many()
+                .filter(
+                    workflow_process_node::Column::ProcessId.not_in_subquery(
+                        Query::select()
+                            .column(workflow_process::Column::ProcessId)
+                            .from(workflow_process::Entity)
+                            .to_owned(),
+                    ),
+                )
+                .exec(&self.ctx.db)
+                .await?;
+
+            WorkflowProcessEdge::delete_many()
+                .filter(
+                    workflow_process_edge::Column::ProcessId.not_in_subquery(
+                        Query::select()
+                            .column(workflow_process::Column::ProcessId)
+                            .from(workflow_process::Entity)
+                            .to_owned(),
+                    ),
+                )
+                .exec(&self.ctx.db)
+                .await?;
+
+            WorkflowProcessNodeTask::delete_many()
+                .filter(
+                    workflow_process_node_task::Column::ProcessId.not_in_subquery(
+                        Query::select()
+                            .column(workflow_process::Column::ProcessId)
+                            .from(workflow_process::Entity)
+                            .to_owned(),
+                    ),
+                )
+                .exec(&self.ctx.db)
+                .await?;
+
+            Ok(ret)
+        }
+    }
+
+    pub async fn delete_version(
+        &self,
+        user_info: &UserInfo,
+        workflow_id: u64,
+        version_id: u64,
+    ) -> Result<u64> {
+        let ret = WorkflowVersion::update_many()
+            .set(workflow_version::ActiveModel {
+                is_deleted: Set(true),
+                deleted_at: Set(Some(Local::now())),
+                deleted_by: Set(user_info.username.clone()),
+                ..Default::default()
+            })
+            .filter(workflow_version::Column::WorkflowId.eq(workflow_id))
+            .filter(workflow_version::Column::Id.eq(version_id))
             .exec(&self.ctx.db)
             .await?;
         Ok(ret.rows_affected)

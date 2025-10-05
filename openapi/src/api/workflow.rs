@@ -603,13 +603,35 @@ mod types {
     }
 
     #[derive(Object, Serialize, Default, Deserialize)]
-    pub struct DeleteProcessReq {
+    pub struct DeleteWorkflowReq {
         pub workflow_id: u64,
-        pub process_id: String,
+    }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct DeleteWorkflowResp {
+        pub result: u64,
+    }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct DeleteProcessReq {
+        pub workflow_id: Option<u64>,
+        pub process_id: Option<String>,
+        pub is_soft: Option<bool>,
     }
 
     #[derive(Object, Serialize, Default, Deserialize)]
     pub struct DeleteProcessResp {
+        pub result: u64,
+    }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct DeleteVersionReq {
+        pub workflow_id: u64,
+        pub version_id: u64,
+    }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct DeleteVersionResp {
         pub result: u64,
     }
 }
@@ -792,14 +814,14 @@ impl WorkflowApi {
         Query(workflow_id): Query<u64>,
         Query(default_id): Query<Option<u64>>,
         #[oai(name = "X-Team-Id")] Header(_team_id): Header<Option<u64>>,
-        #[oai(default)] Query(name): Query<Option<String>>,
+        #[oai(default)] Query(version): Query<Option<String>>,
     ) -> api_response!(types::QueryWorkflowVersionResp) {
         let svc = state.service();
         let ret = svc
             .workflow
             .get_workflow_version_list(
                 &user_info,
-                name,
+                version,
                 username,
                 workflow_id,
                 default_id,
@@ -1118,14 +1140,14 @@ impl WorkflowApi {
         return_ok!(types::StartProcessResp { process_id })
     }
 
-    #[oai(path = "/delete-process", method = "post")]
-    async fn delete_process(
+    #[oai(path = "/delete", method = "post")]
+    async fn delete_workflow(
         &self,
         state: Data<&AppState>,
         user_info: Data<&logic::types::UserInfo>,
-        Json(req): Json<types::DeleteProcessReq>,
+        Json(req): Json<types::DeleteWorkflowReq>,
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
-    ) -> api_response!(types::DeleteProcessResp) {
+    ) -> api_response!(types::DeleteWorkflowResp) {
         let svc = state.service();
         if !svc
             .workflow
@@ -1137,8 +1159,68 @@ impl WorkflowApi {
 
         let ret = svc
             .workflow
-            .delete_process(&user_info, req.workflow_id, req.process_id)
+            .delete_workflow(&user_info, req.workflow_id)
+            .await?;
+        return_ok!(types::DeleteWorkflowResp { result: ret })
+    }
+
+    #[oai(path = "/delete-process", method = "post")]
+    async fn delete_process(
+        &self,
+        state: Data<&AppState>,
+        user_info: Data<&logic::types::UserInfo>,
+        Json(req): Json<types::DeleteProcessReq>,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+    ) -> api_response!(types::DeleteProcessResp) {
+        let svc = state.service();
+        let username = if !svc
+            .workflow
+            .can_write_workflow(&user_info, team_id, req.workflow_id)
+            .await?
+            || team_id == Some(0)
+            || team_id == None
+        {
+            Some(user_info.username.clone())
+        } else {
+            None
+        };
+
+        let ret = svc
+            .workflow
+            .delete_process(
+                &user_info,
+                username,
+                req.workflow_id,
+                req.process_id,
+                team_id,
+                None,
+            )
             .await?;
         return_ok!(types::DeleteProcessResp { result: ret })
+    }
+
+    #[oai(path = "/delete-version", method = "post")]
+    async fn delete_version(
+        &self,
+        state: Data<&AppState>,
+        user_info: Data<&logic::types::UserInfo>,
+        Json(req): Json<types::DeleteVersionReq>,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+    ) -> api_response!(types::DeleteVersionResp) {
+        let svc = state.service();
+
+        if !svc
+            .workflow
+            .can_write_workflow(&user_info, team_id, Some(req.workflow_id))
+            .await?
+        {
+            return_err!("no permission");
+        }
+
+        let ret = svc
+            .workflow
+            .delete_version(&user_info, req.workflow_id, req.version_id)
+            .await?;
+        return_ok!(types::DeleteVersionResp { result: ret })
     }
 }

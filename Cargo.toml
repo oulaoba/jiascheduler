@@ -8,7 +8,6 @@ members = [
     "crates/entity",
     "crates/service",
     "crates/utils",
-    "crates/workflow",
 ]
 
 [package]
