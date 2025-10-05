@@ -1095,7 +1095,7 @@ impl<'a> WorkflowLogic<'a> {
         Ok(())
     }
 
-    pub async fn is_ready(&self, node: &mut WorkflowNode) -> Result<bool> {
+    pub async fn is_continue(&self, node: &mut WorkflowNode) -> Result<bool> {
         if let Some(ref reached_edge) = node.reached_edge {
             WorkflowProcessEdge::insert(workflow_process_edge::ActiveModel {
                 process_id: Set(node.process_id.to_string()),
@@ -1111,20 +1111,36 @@ impl<'a> WorkflowLogic<'a> {
             .await?;
         }
 
-        let prev_edges = node.get_prev_edges();
+        let is_ready = if node.origin_nodes.iter().any(|v| v.is_join_all) {
+            let prev_edges = node.get_prev_edges();
 
-        let ready_edges = WorkflowProcessEdge::find()
-            .filter(workflow_process_edge::Column::ProcessId.eq(node.process_id.clone()))
-            .filter(workflow_process_edge::Column::TargetNodeId.eq(node.current_node.id.clone()))
-            .filter(workflow_process_edge::Column::RunId.eq(node.run_id.clone()))
-            .all(&self.ctx.db)
-            .await?;
+            let ready_edges = WorkflowProcessEdge::find()
+                .filter(workflow_process_edge::Column::ProcessId.eq(node.process_id.clone()))
+                .filter(
+                    workflow_process_edge::Column::TargetNodeId.eq(node.current_node.id.clone()),
+                )
+                .filter(workflow_process_edge::Column::RunId.eq(node.run_id.clone()))
+                .all(&self.ctx.db)
+                .await?;
 
-        let is_ready = prev_edges
-            .iter()
-            .all(|&v1| ready_edges.iter().any(|v2| v2.edge_id == v1.id));
+            prev_edges
+                .iter()
+                .all(|&v1| ready_edges.iter().any(|v2| v2.edge_id == v1.id))
+        } else {
+            true
+        };
 
         if is_ready {
+            let node_record = WorkflowProcessNode::find()
+                .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
+                .filter(workflow_process_node::Column::RunId.eq(&node.run_id))
+                .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
+                .one(&self.ctx.db)
+                .await?;
+            if node_record.is_some() {
+                return Ok(true);
+            }
+
             WorkflowProcess::update_many()
                 .set(workflow_process::ActiveModel {
                     current_node_id: Set(node.current_node.id.to_string()),
@@ -1225,7 +1241,7 @@ impl<'a> WorkflowLogic<'a> {
     pub async fn process_node(&self, mut node: WorkflowNode) -> Result<()> {
         node.flow_depth += 1;
 
-        if !self.is_ready(&mut node).await? {
+        if !self.is_continue(&mut node).await? {
             return Ok(());
         }
 

@@ -240,6 +240,7 @@ mod types {
         pub name: String,
         pub node_type: NodeType,
         pub task_type: TaskType,
+        pub is_join_all: bool,
         pub task: Task,
         pub data: serde_json::Value,
     }
@@ -253,6 +254,7 @@ mod types {
                 node_type: self.node_type.to_string().as_str().try_into()?,
                 task_type: self.task_type.to_string().as_str().try_into()?,
                 task: self.task.try_into()?,
+                is_join_all: self.is_join_all,
                 data: self.data,
             })
         }
@@ -264,6 +266,7 @@ mod types {
             Ok(NodeConfig {
                 id: value.id,
                 name: value.name,
+                is_join_all: value.is_join_all,
                 node_type: value.node_type.to_string().as_str().try_into()?,
                 task_type: value.task_type.to_string().as_str().try_into()?,
                 task: value.task.try_into()?,

@@ -152,6 +152,8 @@ pub struct NodeConfig {
     pub name: String,
     pub node_type: NodeType,
     pub task_type: TaskType,
+    #[serde(default)]
+    pub is_join_all: bool,
     pub task: Task,
     pub data: serde_json::Value,
 }
