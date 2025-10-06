@@ -491,6 +491,7 @@ impl<'a> WorkflowLogic<'a> {
 
         let completed_node = WorkflowProcessNode::find()
             .filter(workflow_process_node::Column::ProcessId.eq(&process_id))
+            .order_by_desc(workflow_process_node::Column::Depth)
             .order_by_desc(workflow_process_node::Column::Id)
             .all(&self.ctx.db)
             .await?;
@@ -666,6 +667,38 @@ impl<'a> WorkflowLogic<'a> {
         node: &mut WorkflowNode,
         custom_job: &CustomJob,
     ) -> Result<()> {
+        let executor_record = Executor::find()
+            .filter(executor::Column::Id.eq(custom_job.executor_id))
+            .one(&self.ctx.db)
+            .await?
+            .ok_or(anyhow!(
+                "cannot found executor {}",
+                custom_job.executor_id.clone()
+            ))?;
+
+        let upload_file: Option<UploadFile> = if let Some(uploadfile) =
+            custom_job.upload_file.clone()
+            && uploadfile != ""
+        {
+            let data = fs::read(uploadfile.clone()).await?;
+            Some(UploadFile {
+                filename: file_name!(uploadfile),
+                data: Some(data),
+            })
+        } else {
+            None
+        };
+
+        let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&executor_record);
+        let eid = node.current_node.id.clone();
+        let schedule_id = node.process_id.clone();
+
+        let (process_id, node_id, run_id) = (
+            node.process_id.clone(),
+            node.current_node.id.clone(),
+            node.run_id.clone(),
+        );
+
         let actual_args = self
             .parse_actual_args(node, custom_job.code.clone())
             .await?;
@@ -678,35 +711,23 @@ impl<'a> WorkflowLogic<'a> {
             anyhow::bail!("cannot found valid instance");
         }
 
-        let executor_record = Executor::find()
-            .filter(executor::Column::Id.eq(custom_job.executor_id))
-            .one(&self.ctx.db)
-            .await?
-            .ok_or(anyhow!(
-                "cannot found executor {}",
-                custom_job.executor_id.clone()
-            ))?;
-
-        let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&executor_record);
-        let eid = node.current_node.id.clone();
-        let schedule_id = node.process_id.clone();
-
-        let _upload_file: Option<UploadFile> =
-            if let Some(uploadfile) = custom_job.upload_file.clone() {
-                let data = fs::read(uploadfile.clone()).await?;
-                Some(UploadFile {
-                    filename: file_name!(uploadfile),
-                    data: Some(data),
-                })
-            } else {
-                None
-            };
+        WorkflowProcessNode::update_many()
+            .set(workflow_process_node::ActiveModel {
+                node_args: Set(Some(serde_json::to_value(actual_args)?)),
+                ..Default::default()
+            })
+            .filter(workflow_process_node::Column::ProcessId.eq(process_id))
+            .filter(workflow_process_node::Column::NodeId.eq(node_id))
+            .filter(workflow_process_node::Column::RunId.eq(run_id))
+            .exec(&self.ctx.db)
+            .await?;
 
         let dispatch_params = automate::DispatchJobParams {
             base_job: automate::BaseJob {
                 eid,
                 cmd_name,
-                code: custom_job.code.clone(),
+                upload_file,
+                code: actual_args.code.clone(),
                 args: cmd_args,
                 timeout: 60,
                 max_retry: Some(1),
@@ -717,7 +738,9 @@ impl<'a> WorkflowLogic<'a> {
             },
             run_id: node.run_id.clone(),
             instance_id: None,
-            fields: Some(json!({"is_workflow":true})),
+            fields: Some(json!({
+                "workflow_node": serde_json::to_value(& *node)?
+            })),
             restart_interval: None,
             created_user: node.created_user.clone(),
             schedule_id,
@@ -844,7 +867,9 @@ impl<'a> WorkflowLogic<'a> {
                         run_id: Set(node.run_id.clone()),
                         task_status: Set("prepare".to_string()),
                         bind_ip: Set(v.bind_ip.clone()),
+                        dispatch_result: Set(Some(serde_json::to_value(&v).unwrap())),
                         created_user: Set(node.created_user.clone()),
+                        output: Set("".to_string()),
                         ..Default::default()
                     })
                 })
@@ -924,7 +949,7 @@ impl<'a> WorkflowLogic<'a> {
                 cmd_name,
                 code: actual_args.code.clone(),
                 args: cmd_args,
-                upload_file: upload_file.clone(),
+                upload_file: upload_file,
                 work_dir: Some(job_record.work_dir.clone()).filter(|v| !v.is_empty()),
                 work_user: Some(job_record.work_user.clone()).filter(|v| !v.is_empty()),
                 timeout: job_record.timeout,
@@ -1111,7 +1136,7 @@ impl<'a> WorkflowLogic<'a> {
             .await?;
         }
 
-        let is_ready = if node.origin_nodes.iter().any(|v| v.is_join_all) {
+        let is_ready = if node.current_node.is_join_all {
             let prev_edges = node.get_prev_edges();
 
             let ready_edges = WorkflowProcessEdge::find()
@@ -1131,16 +1156,6 @@ impl<'a> WorkflowLogic<'a> {
         };
 
         if is_ready {
-            let node_record = WorkflowProcessNode::find()
-                .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
-                .filter(workflow_process_node::Column::RunId.eq(&node.run_id))
-                .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
-                .one(&self.ctx.db)
-                .await?;
-            if node_record.is_some() {
-                return Ok(true);
-            }
-
             WorkflowProcess::update_many()
                 .set(workflow_process::ActiveModel {
                     current_node_id: Set(node.current_node.id.to_string()),
@@ -1152,11 +1167,29 @@ impl<'a> WorkflowLogic<'a> {
                 .exec(&self.ctx.db)
                 .await?;
 
+            let affected = WorkflowProcessNode::update_many()
+                .set(workflow_process_node::ActiveModel {
+                    updated_time: Set(Local::now()),
+                    depth: Set(node.flow_depth),
+                    ..Default::default()
+                })
+                .filter(workflow_process_node::Column::ProcessId.eq(&node.process_id))
+                .filter(workflow_process_node::Column::RunId.eq(&node.run_id))
+                .filter(workflow_process_node::Column::NodeId.eq(&node.current_node.id))
+                .exec(&self.ctx.db)
+                .await?
+                .rows_affected;
+
+            if affected > 0 {
+                return Ok(false || node.current_node.node_type == NodeType::EndEvent);
+            }
+
             WorkflowProcessNode::insert(workflow_process_node::ActiveModel {
                 process_id: Set(node.process_id.to_string()),
                 run_id: Set(node.run_id.to_string()),
                 node_id: Set(node.current_node.id.to_string()),
                 node_status: Set(NodeStatus::Running.to_string()),
+                depth: Set(node.flow_depth),
                 created_user: Set(node.created_user.to_string()),
                 ..Default::default()
             })

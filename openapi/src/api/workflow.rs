@@ -97,6 +97,7 @@ mod types {
                                 name: v.name.clone(),
                                 val: v.val.clone(),
                                 val_type: v.val_type.clone(),
+                                info: v.info.clone(),
                             })
                             .collect(),
                         target: std_job.target,
@@ -118,6 +119,7 @@ mod types {
                                 name: v.name.clone(),
                                 val: v.val.clone(),
                                 val_type: v.val_type.clone(),
+                                info: v.info.clone(),
                             })
                             .collect(),
                     }),
@@ -145,6 +147,7 @@ mod types {
                                 name: v.name.clone(),
                                 val: v.val.clone(),
                                 val_type: v.val_type.clone(),
+                                info: v.info.clone(),
                             })
                             .collect(),
                         target: std_job.target,
@@ -165,6 +168,7 @@ mod types {
                                 name: v.name.clone(),
                                 val: v.val.clone(),
                                 val_type: v.val_type.clone(),
+                                info: v.info.clone(),
                             })
                             .collect(),
                     },
@@ -215,6 +219,7 @@ mod types {
         pub name: String,
         pub val: String,
         pub val_type: String,
+        pub info: Option<String>,
     }
 
     #[derive(Serialize, Object, Deserialize, Clone, Debug)]

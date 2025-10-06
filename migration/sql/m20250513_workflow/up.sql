@@ -55,6 +55,7 @@ CREATE TABLE `workflow_process_node` (
     `node_id` varchar(100) NOT NULL DEFAULT '' COMMENT 'process node id',
     `node_status` varchar(100) NOT NULL DEFAULT 'start' COMMENT 'node status:start running, end',
     `node_args` json DEFAULT NULL COMMENT 'node args',
+    `depth` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'workflow node depth',
     `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'creator username',
     `created_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
     `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
