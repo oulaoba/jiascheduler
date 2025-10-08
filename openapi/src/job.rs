@@ -76,7 +76,48 @@ async fn agent_offline(state: AppState, msg: AgentOfflineParams) -> Result<()> {
         .await?)
 }
 
-pub async fn instance_health_check(state: AppState) {
+pub async fn check_health(state: AppState, is_master: Arc<RwLock<bool>>) {
+    let svc = state.service();
+    loop {
+        let ok = is_master.read().await;
+        if *ok {
+            let _ = svc
+                .instance
+                .offline_inactive_instance(60)
+                .await
+                .context("failed offline inactive instance")
+                .map_err(|e| error!("{e:?}"));
+
+            sleep(Duration::from_secs(30)).await;
+        } else {
+            sleep(Duration::from_secs(1)).await;
+        }
+    }
+}
+
+pub async fn schedule_workflow(state: AppState, is_master: Arc<RwLock<bool>>) {
+    let workflow_service = state.service().workflow;
+
+    loop {
+        if !*is_master.read().await {
+            sleep(Duration::from_millis(100)).await;
+            continue;
+        }
+        let ret = workflow_service
+            .recv_timer_msg(is_master.clone(), |_key, msg| {
+                let state = state.clone();
+                Box::pin(async move { Ok(()) })
+            })
+            .await;
+        if let Err(e) = ret {
+            error!("failed to recv workflow timer msg - {e}");
+            sleep(Duration::from_millis(500)).await;
+        }
+        info!("restart recv workflow timer msg");
+    }
+}
+
+pub async fn leader_process(state: AppState) {
     let is_master = Arc::new(RwLock::new(false));
     let state_clone = state.clone();
     let is_master_clone = is_master.clone();
@@ -96,25 +137,8 @@ pub async fn instance_health_check(state: AppState) {
         .await
         .expect("failed run leader election");
     });
-
-    tokio::spawn(async move {
-        let svc = state.service();
-        loop {
-            let ok = is_master.read().await;
-            if *ok {
-                let _ = svc
-                    .instance
-                    .offline_inactive_instance(60)
-                    .await
-                    .context("failed offline inactive instance")
-                    .map_err(|e| error!("{e:?}"));
-
-                sleep(Duration::from_secs(30)).await;
-            } else {
-                sleep(Duration::from_secs(1)).await;
-            }
-        }
-    });
+    tokio::spawn(check_health(state.clone(), is_master.clone()));
+    tokio::spawn(schedule_workflow(state.clone(), is_master.clone()));
 }
 
 pub async fn update_job_status(state: AppState, v: UpdateJobParams) -> Result<()> {
@@ -131,7 +155,7 @@ pub async fn update_job_status(state: AppState, v: UpdateJobParams) -> Result<()
 pub async fn start(state: AppState) -> Result<()> {
     let bus = Bus::new(state.redis().clone());
 
-    instance_health_check(state.clone()).await;
+    leader_process(state.clone()).await;
 
     // process job update msg
     let state_clone = state.clone();
@@ -168,7 +192,7 @@ pub async fn start(state: AppState) -> Result<()> {
         let workflow_service = state.service().workflow;
         loop {
             let ret = workflow_service
-                .recv(|_key, msg| {
+                .recv_flow_msg(|_key, msg| {
                     let state = state.clone();
                     Box::pin(async move {
                         state.service().workflow.process_node(msg).await?;

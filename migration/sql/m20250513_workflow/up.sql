@@ -1,6 +1,7 @@
 CREATE TABLE `workflow` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
     `name` varchar(100) NOT NULL DEFAULT '' COMMENT 'workflow name',
+    `timer_expr` JSON NULL COMMENT '定时表达式',
     `nodes` json DEFAULT NULL COMMENT 'workflow nodes',
     `edges` json DEFAULT NULL COMMENT 'workflow edges',
     `info` varchar(500) NOT NULL DEFAULT '' COMMENT 'describe message',

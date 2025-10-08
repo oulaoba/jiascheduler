@@ -5018,6 +5018,7 @@ dependencies = [
  "simple_crypt",
  "sql-builder",
  "tokio",
+ "tokio-cron-scheduler",
  "toml 0.8.19",
  "tracing",
  "utils",

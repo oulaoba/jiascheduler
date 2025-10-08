@@ -1,5 +1,6 @@
 use core::matches;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use crate::logic::executor::ExecutorLogic;
 use crate::logic::job::JobLogic;
@@ -32,17 +33,20 @@ use sea_orm::{
 use sea_query::{Expr, Query};
 use serde_json::json;
 use tokio::fs;
+use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 use utils::file_name;
 
 use super::types::{EdgeConfig, NodeConfig};
 
 pub struct WorkflowLogic<'a> {
-    ctx: &'a AppContext,
+    pub(super) ctx: &'a AppContext,
 }
 
 impl<'a> WorkflowLogic<'a> {
     pub const WORKFLOW_TOPIC: &'static str = "jiascheduler:workflow";
+    pub const WORKFLOW_TIMER_TOPIC: &'static str = "jiascheduler:workflow:timer";
+
     pub const CONSUMER_GROUP: &'static str = "jiascheduler-group";
 
     pub fn new(ctx: &'a AppContext) -> Self {
@@ -1482,7 +1486,7 @@ impl<'a> WorkflowLogic<'a> {
         Ok(process_id)
     }
 
-    pub async fn recv(
+    pub async fn recv_flow_msg(
         &self,
         mut cb: impl Sync
         + Send
@@ -1502,7 +1506,7 @@ impl<'a> WorkflowLogic<'a> {
                 |v| v,
             );
 
-        info!("create stream group {}", ret);
+        info!("create workflow stream group {}", ret);
 
         let opts = StreamReadOptions::default()
             .group(Self::CONSUMER_GROUP, local_ip()?.to_string())
@@ -1518,7 +1522,7 @@ impl<'a> WorkflowLogic<'a> {
                 .xtrim::<_, u64>(Self::WORKFLOW_TOPIC, StreamMaxlen::Equals(5000))
                 .await
             {
-                error!("failed to trim stream - {e}");
+                error!("failed to trim workflow stream - {e}");
             };
 
             for stream_key in ret.keys {
@@ -1529,13 +1533,13 @@ impl<'a> WorkflowLogic<'a> {
                         let ret = match from_redis_value::<WorkflowNode>(&v) {
                             Ok(msg) => cb(k, msg).await,
                             Err(e) => {
-                                error!("failed to parse redis val - {e}");
+                                error!("failed to parse workflow msg - {e}");
                                 Ok(())
                             }
                         };
 
                         if let Err(e) = ret {
-                            error!("failed to handle msg - {e}");
+                            error!("failed to handle workflow msg - {e}");
                         }
 
                         let _: i32 = conn
@@ -1547,7 +1551,91 @@ impl<'a> WorkflowLogic<'a> {
                             .await
                             .map_or_else(
                                 |v| {
-                                    error!("faile to exec xack - {}", v);
+                                    error!("faile to exec workflow msg xack - {}", v);
+                                    0
+                                },
+                                |v| v,
+                            );
+                    }
+                }
+            }
+        }
+    }
+
+    pub async fn recv_timer_msg(
+        &self,
+        is_continue: Arc<RwLock<bool>>,
+        mut cb: impl Sync
+        + Send
+        + FnMut(String, WorkflowNode) -> Pin<Box<dyn Future<Output = Result<()>> + Send>>,
+    ) -> Result<()> {
+        if !*is_continue.read().await {
+            return Ok(());
+        }
+
+        let redis_client = self.ctx.redis();
+        let mut conn = redis_client.get_multiplexed_async_connection().await?;
+
+        let ret: String = conn
+            .xgroup_create_mkstream(Self::WORKFLOW_TIMER_TOPIC, Self::CONSUMER_GROUP, "$")
+            .await
+            .map_or_else(
+                |e| {
+                    warn!("failed create workflow timer stream group - {}", e);
+                    "".to_string()
+                },
+                |v| v,
+            );
+
+        info!("create workflow timer stream group {}", ret);
+
+        let opts = StreamReadOptions::default()
+            .group(Self::CONSUMER_GROUP, local_ip()?.to_string())
+            .block(100)
+            .count(100);
+
+        loop {
+            if !*is_continue.read().await {
+                return Ok(());
+            }
+            let ret: StreamReadReply = conn
+                .xread_options(&[Self::WORKFLOW_TIMER_TOPIC], &[">"], &opts)
+                .await?;
+
+            if let Err(e) = conn
+                .xtrim::<_, u64>(Self::WORKFLOW_TIMER_TOPIC, StreamMaxlen::Equals(5000))
+                .await
+            {
+                error!("failed to trim workflow timer stream - {e}");
+            };
+
+            for stream_key in ret.keys {
+                let msg_key = stream_key.key;
+
+                for stream_id in stream_key.ids {
+                    for (k, v) in stream_id.map {
+                        let ret = match from_redis_value::<WorkflowNode>(&v) {
+                            Ok(msg) => cb(k, msg).await,
+                            Err(e) => {
+                                error!("failed to parse workflow timer val - {e}");
+                                Ok(())
+                            }
+                        };
+
+                        if let Err(e) = ret {
+                            error!("failed to handle workflow timer msg - {e}");
+                        }
+
+                        let _: i32 = conn
+                            .xack(
+                                msg_key.clone(),
+                                Self::CONSUMER_GROUP,
+                                &[stream_id.id.clone()],
+                            )
+                            .await
+                            .map_or_else(
+                                |v| {
+                                    error!("faile to exec workflow timer msg xack - {}", v);
                                     0
                                 },
                                 |v| v,
