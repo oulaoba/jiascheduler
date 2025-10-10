@@ -26,4 +26,5 @@ pub use super::workflow_process::Entity as WorkflowProcess;
 pub use super::workflow_process_edge::Entity as WorkflowProcessEdge;
 pub use super::workflow_process_node::Entity as WorkflowProcessNode;
 pub use super::workflow_process_node_task::Entity as WorkflowProcessNodeTask;
+pub use super::workflow_timer::Entity as WorkflowTimer;
 pub use super::workflow_version::Entity as WorkflowVersion;

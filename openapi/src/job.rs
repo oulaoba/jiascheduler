@@ -7,6 +7,7 @@ use automate::{
 };
 
 use leader_election::LeaderElection;
+use service::logic::workflow::timer::WorkflowTimerTask;
 use tokio::{sync::RwLock, time::sleep};
 use tracing::{error, info};
 
@@ -103,10 +104,28 @@ pub async fn schedule_workflow(state: AppState, is_master: Arc<RwLock<bool>>) {
             sleep(Duration::from_millis(100)).await;
             continue;
         }
+        let sched = workflow_service
+            .new_scheduler()
+            .await
+            .expect("failed initialization workflow scheduler");
+
         let ret = workflow_service
             .recv_timer_msg(is_master.clone(), |_key, msg| {
                 let state = state.clone();
-                Box::pin(async move { Ok(()) })
+                let sched = sched.clone();
+                Box::pin(async move {
+                    match msg {
+                        WorkflowTimerTask::StartTimer(id) => {
+                            state.service().workflow.start_timer(id, sched).await?
+                        }
+                        WorkflowTimerTask::StopTimer(_) => todo!(),
+                        WorkflowTimerTask::DispatchWorkflow(_) => {
+                            todo!()
+                        }
+                    }
+
+                    Ok(())
+                })
             })
             .await;
         if let Err(e) = ret {
