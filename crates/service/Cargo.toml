@@ -39,3 +39,4 @@ local-ip-address.workspace = true
 handlebars.workspace = true
 expr-lang.workspace = true
 tokio-cron-scheduler.workspace = true
+uuid.workspace = true

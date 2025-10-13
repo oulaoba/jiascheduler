@@ -12,6 +12,7 @@ pub struct Model {
     pub version_id: u64,
     pub timer_expr: Json,
     pub schedule_guid: String,
+    pub is_active: bool,
     pub created_user: String,
     pub updated_user: String,
     pub created_time: DateTimeLocal,

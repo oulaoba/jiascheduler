@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc, time::Duration};
+use std::{pin::Pin, str::FromStr, sync::Arc, time::Duration};
 
 use crate::entity::prelude::*;
 use anyhow::Result;
@@ -16,14 +16,14 @@ use serde::{Deserialize, Serialize};
 use tokio::{sync::RwLock, time::sleep};
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use crate::{logic::workflow::WorkflowLogic, state::AppState};
 
 #[derive(Serialize, Deserialize, FromRedisValue, ToRedisArgs, Clone)]
 pub enum WorkflowTimerTask {
     StartTimer(u64),
-    StopTimer(String),
-    DispatchWorkflow(String),
+    StopTimer(u64),
 }
 
 impl<'a> WorkflowLogic<'a> {
@@ -180,17 +180,25 @@ impl<'a> WorkflowLogic<'a> {
         Ok(v)
     }
 
-    pub async fn start_timer(&self, timer_id: u64, mut sched: JobScheduler) -> Result<()> {
-        let timer_record = WorkflowTimer::find()
-            .filter(workflow_timer::Column::Id.eq(timer_id))
-            .one(&self.ctx.db)
+    pub async fn init_timer(&self, sched: JobScheduler) -> Result<()> {
+        let all_active_timers = WorkflowTimer::find()
+            .filter(workflow_timer::Column::IsActive.eq(true))
+            .filter(workflow_timer::Column::IsDeleted.eq(false))
+            .all(&self.ctx.db)
             .await?;
 
-        let Some(timer_record) = timer_record else {
-            return Ok(());
-        };
+        for timer in all_active_timers {
+            self.add_job_to_scheduler(timer, sched.clone()).await?;
+        }
+        Ok(())
+    }
 
-        let job = Job::new_async(timer_record.timer_expr, |uuid, mut l| {
+    async fn add_job_to_scheduler(
+        &self,
+        timer: workflow_timer::Model,
+        sched: JobScheduler,
+    ) -> Result<()> {
+        let job = Job::new_async(timer.timer_expr, |uuid, mut l| {
             Box::pin(async move {
                 println!("I run async every 7 seconds");
                 // Query the next execution time for this job
@@ -201,15 +209,49 @@ impl<'a> WorkflowLogic<'a> {
                 }
             })
         })?;
+
         WorkflowTimer::update(workflow_timer::ActiveModel {
-            id: Set(timer_id),
+            id: Set(timer.id),
             schedule_guid: Set(job.guid().to_string()),
+            is_active: Set(true),
             ..Default::default()
         })
         .exec(&self.ctx.db)
         .await?;
         sched.add(job).await?;
 
+        Ok(())
+    }
+
+    pub async fn start_timer(&self, timer_id: u64, sched: JobScheduler) -> Result<()> {
+        let timer_record = WorkflowTimer::find()
+            .filter(workflow_timer::Column::Id.eq(timer_id))
+            .filter(workflow_timer::Column::IsActive.eq(true))
+            .filter(workflow_timer::Column::IsDeleted.eq(false))
+            .one(&self.ctx.db)
+            .await?;
+
+        let Some(timer_record) = timer_record else {
+            return Ok(());
+        };
+        self.add_job_to_scheduler(timer_record, sched).await
+    }
+
+    pub async fn stop_timer(&self, timer_id: u64, sched: JobScheduler) -> Result<()> {
+        let timer_record = WorkflowTimer::find()
+            .filter(workflow_timer::Column::Id.eq(timer_id))
+            .filter(workflow_timer::Column::IsActive.eq(true))
+            .filter(workflow_timer::Column::IsDeleted.eq(false))
+            .one(&self.ctx.db)
+            .await?;
+
+        let Some(timer_record) = timer_record else {
+            return Ok(());
+        };
+
+        sched
+            .remove(&Uuid::from_str(&timer_record.schedule_guid)?)
+            .await?;
         Ok(())
     }
 }

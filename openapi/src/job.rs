@@ -104,10 +104,15 @@ pub async fn schedule_workflow(state: AppState, is_master: Arc<RwLock<bool>>) {
             sleep(Duration::from_millis(100)).await;
             continue;
         }
-        let sched = workflow_service
+        let mut sched = workflow_service
             .new_scheduler()
             .await
             .expect("failed initialization workflow scheduler");
+
+        if let Err(e) = workflow_service.init_timer(sched.clone()).await {
+            error!("failed initialization workflow timer, {e}");
+            sleep(Duration::from_secs(5)).await;
+        };
 
         let ret = workflow_service
             .recv_timer_msg(is_master.clone(), |_key, msg| {
@@ -118,9 +123,8 @@ pub async fn schedule_workflow(state: AppState, is_master: Arc<RwLock<bool>>) {
                         WorkflowTimerTask::StartTimer(id) => {
                             state.service().workflow.start_timer(id, sched).await?
                         }
-                        WorkflowTimerTask::StopTimer(_) => todo!(),
-                        WorkflowTimerTask::DispatchWorkflow(_) => {
-                            todo!()
+                        WorkflowTimerTask::StopTimer(id) => {
+                            state.service().workflow.stop_timer(id, sched).await?
                         }
                     }
 
@@ -128,6 +132,11 @@ pub async fn schedule_workflow(state: AppState, is_master: Arc<RwLock<bool>>) {
                 })
             })
             .await;
+
+        if let Err(e) = sched.shutdown().await {
+            error!("failed shutdown workflow scheduler - {e}");
+        };
+
         if let Err(e) = ret {
             error!("failed to recv workflow timer msg - {e}");
             sleep(Duration::from_millis(500)).await;
