@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
+use entity::{prelude::Workflow, workflow_timer};
 use poem::{web::Data, Endpoint, EndpointExt};
 use poem_openapi::{
     param::{Header, Query},
     payload::Json,
     OpenApi,
 };
+use sea_orm::{ActiveValue::NotSet, ActiveValue::Set, EntityTrait};
 use service::logic::workflow::types::{EdgeConfig, NodeConfig};
 
 use crate::{api_response, local_time, logic, middleware, return_err, return_ok, state::AppState};
@@ -642,6 +644,49 @@ mod types {
     pub struct DeleteVersionResp {
         pub result: u64,
     }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct SaveWorkflowTimerReq {
+        pub id: Option<u64>,
+        pub workflow_id: u64,
+        pub version_id: u64,
+    }
+
+    #[derive(Object, Deserialize, Serialize)]
+    pub struct SaveWorkflowTimerResp {
+        pub result: u64,
+    }
+
+    #[derive(Object, Serialize, Default)]
+    pub struct QueryWorkflowTimerResp {
+        pub total: u64,
+        pub list: Vec<WorkflowTimerRecord>,
+    }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct WorkflowTimerRecord {
+        pub id: u64,
+        pub workflow_id: u64,
+        pub version_id: u64,
+        pub timer_expr: serde_json::Value,
+        pub schedule_guid: String,
+        pub is_active: bool,
+        pub created_user: String,
+        pub updated_user: String,
+        pub created_time: String,
+        pub updated_time: String,
+    }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct DeleteTimerReq {
+        pub id: u64,
+        pub is_soft: Option<bool>,
+    }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct DeleteTimerResp {
+        pub result: u64,
+    }
 }
 
 fn set_middleware(ep: impl Endpoint) -> impl Endpoint {
@@ -1230,5 +1275,55 @@ impl WorkflowApi {
             .delete_version(&user_info, req.workflow_id, req.version_id)
             .await?;
         return_ok!(types::DeleteVersionResp { result: ret })
+    }
+
+    #[oai(path = "/save-timer", method = "post")]
+    pub async fn save_timer(
+        &self,
+        state: Data<&AppState>,
+        user_info: Data<&logic::types::UserInfo>,
+        Json(req): Json<types::SaveWorkflowTimerReq>,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+    ) -> api_response!(types::SaveWorkflowTimerResp) {
+        let svc = state.service();
+        if !svc
+            .workflow
+            .can_write_timer(&user_info, team_id, req.id)
+            .await?
+        {
+            return_err!("no permission");
+        }
+
+        svc.workflow
+            .save_timer(
+                &user_info,
+                workflow_timer::ActiveModel {
+                    id: req.id.map_or(NotSet, |v| Set(v)),
+                    ..Default::default()
+                },
+            )
+            .await?;
+        todo!()
+    }
+
+    #[oai(path = "/delete-timer", method = "post")]
+    async fn delete_timer(
+        &self,
+        state: Data<&AppState>,
+        user_info: Data<&logic::types::UserInfo>,
+        Json(req): Json<types::DeleteTimerReq>,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+    ) -> api_response!(types::DeleteTimerResp) {
+        let svc = state.service();
+        if !svc
+            .workflow
+            .can_write_timer(&user_info, team_id, Some(req.id))
+            .await?
+        {
+            return_err!("no permission");
+        }
+
+        let ret = svc.workflow.delete_timer(&user_info, req.id).await?;
+        return_ok!(types::DeleteTimerResp { result: ret })
     }
 }

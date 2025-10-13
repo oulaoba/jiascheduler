@@ -20,7 +20,7 @@ use automate::scheduler::types::{RunStatus, UploadFile};
 use chrono::Local;
 use entity::{
     executor, instance, job, tag_resource, team, workflow, workflow_process, workflow_process_edge,
-    workflow_process_node, workflow_process_node_task, workflow_version,
+    workflow_process_node, workflow_process_node_task, workflow_timer, workflow_version,
 };
 use local_ip_address::local_ip;
 use redis::streams::{StreamMaxlen, StreamReadOptions, StreamReadReply};
@@ -219,6 +219,27 @@ impl<'a> WorkflowLogic<'a> {
             .await?;
 
         Ok((ret, total))
+    }
+
+    pub async fn can_write_timer(
+        &self,
+        user_info: &UserInfo,
+        team_id: Option<u64>,
+        timer_id: Option<u64>,
+    ) -> Result<bool> {
+        let Some(timer_id) = timer_id else {
+            return Ok(true);
+        };
+        let Some(timer) = WorkflowTimer::find()
+            .filter(workflow_timer::Column::Id.eq(timer_id))
+            .one(&self.ctx.db)
+            .await?
+        else {
+            anyhow::bail!("cannot found timer {timer_id}");
+        };
+
+        self.can_write_workflow(user_info, team_id, Some(timer.workflow_id))
+            .await
     }
 
     pub async fn can_write_workflow(
@@ -1704,6 +1725,29 @@ impl<'a> WorkflowLogic<'a> {
             })
             .filter(workflow_version::Column::WorkflowId.eq(workflow_id))
             .filter(workflow_version::Column::Id.eq(version_id))
+            .exec(&self.ctx.db)
+            .await?;
+        Ok(ret.rows_affected)
+    }
+
+    pub async fn save_timer(
+        &self,
+        user_info: &UserInfo,
+        active_model: workflow_timer::ActiveModel,
+    ) -> Result<u64> {
+        let active_model = active_model.save(&self.ctx.db).await?;
+        Ok(active_model.id.as_ref().to_owned())
+    }
+
+    pub async fn delete_timer(&self, user_info: &UserInfo, id: u64) -> Result<u64> {
+        let ret = WorkflowTimer::update_many()
+            .set(workflow_timer::ActiveModel {
+                is_deleted: Set(true),
+                deleted_at: Set(Some(Local::now())),
+                deleted_by: Set(user_info.username.clone()),
+                ..Default::default()
+            })
+            .filter(workflow_timer::Column::Id.eq(id))
             .exec(&self.ctx.db)
             .await?;
         Ok(ret.rows_affected)
