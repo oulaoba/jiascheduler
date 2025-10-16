@@ -1,24 +1,28 @@
 use std::{pin::Pin, str::FromStr, sync::Arc, time::Duration};
 
-use crate::entity::prelude::*;
+use crate::{entity::prelude::*, logic::types::ResourceType};
 use anyhow::Result;
 use chrono::Local;
-use entity::{workflow, workflow_process, workflow_timer};
+use entity::{tag_resource, team, workflow, workflow_process, workflow_timer, workflow_version};
 use local_ip_address::local_ip;
 use redis::{
     AsyncCommands, from_redis_value,
     streams::{StreamMaxlen, StreamReadOptions, StreamReadReply},
 };
 use redis_macros::{FromRedisValue, ToRedisArgs};
-use sea_orm::{ActiveValue::Set, ColumnTrait};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, FromQueryResult, JoinType, PaginatorTrait,
+    QueryOrder, QuerySelect, QueryTrait, prelude::DateTimeLocal,
+};
 use sea_orm::{EntityTrait, QueryFilter};
+use sea_query::{ConditionType, Expr, IntoCondition, Query};
 use serde::{Deserialize, Serialize};
-use tokio::{sync::RwLock, time::sleep};
+use tokio::sync::RwLock;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::{logic::workflow::WorkflowLogic, state::AppState};
+use crate::logic::workflow::WorkflowLogic;
 
 #[derive(Serialize, Deserialize, FromRedisValue, ToRedisArgs, Clone)]
 pub enum WorkflowTimerTask {
@@ -26,62 +30,29 @@ pub enum WorkflowTimerTask {
     StopTimer(u64),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult)]
+pub struct WorkflowTimerWithTeamModel {
+    pub id: u64,
+    pub name: String,
+    pub team_id: u64,
+    pub team_name: Option<String>,
+    pub workflow_id: u64,
+    pub workflow_name: String,
+    pub version_id: u64,
+    pub timer_expr: serde_json::Value,
+    pub schedule_guid: String,
+    pub is_active: bool,
+    pub info: String,
+    pub created_user: String,
+    pub updated_user: String,
+    pub created_time: DateTimeLocal,
+    pub updated_time: DateTimeLocal,
+}
+
 impl<'a> WorkflowLogic<'a> {
-    async fn check_due_tasks(&self) -> Result<()> {
-        let now = Local::now().timestamp();
-
-        let redis_client = self.ctx.redis();
-        let mut conn = redis_client.get_multiplexed_async_connection().await?;
-        let key = "jiascheduler:workflow:delayed";
-        let due_tasks: Vec<String> = conn.zrangebyscore(key, 0.0, now).await?;
-
-        if !due_tasks.is_empty() {
-            let _: () = conn.zrembyscore(key, 0.0, now).await?;
-
-            // 3. 将每个任务发布到 channel
-            for task_str in due_tasks {
-                // let _: () = conn.publish("jobs:ready", &task_str)?;
-            }
-        }
-        Ok(())
-    }
-
-    async fn schedule(&self, task: String) -> Result<()> {
-        let mut sched = JobScheduler::new().await?;
-        let job = Job::new_async("1/7 * * * * *", |uuid, mut l| {
-            Box::pin(async move {
-                println!("I run async every 7 seconds");
-
-                // Query the next execution time for this job
-                let next_tick = l.next_tick_for_job(uuid).await;
-                match next_tick {
-                    Ok(Some(ts)) => println!("Next time for 7s job is {:?}", ts),
-                    _ => println!("Could not get next tick for 7s job"),
-                }
-            })
-        })?;
-
-        todo!();
-    }
-
     pub async fn new_scheduler(&self) -> Result<JobScheduler> {
         let sched = JobScheduler::new().await?;
         sched.start().await?;
-        // let job = Job::new_async("1/7 * * * * *", |uuid, mut l| {
-        //     Box::pin(async move {
-        //         println!("I run async every 7 seconds");
-
-        //         // Query the next execution time for this job
-        //         let next_tick = l.next_tick_for_job(uuid).await;
-        //         match next_tick {
-        //             Ok(Some(ts)) => println!("Next time for 7s job is {:?}", ts),
-        //             _ => println!("Could not get next tick for 7s job"),
-        //         }
-        //     })
-        // })?;
-
-        // todo!();
-        //
         Ok(sched)
     }
 
@@ -253,5 +224,101 @@ impl<'a> WorkflowLogic<'a> {
             .remove(&Uuid::from_str(&timer_record.schedule_guid)?)
             .await?;
         Ok(())
+    }
+
+    pub async fn get_timer_list(
+        &self,
+        team_id: Option<u64>,
+        created_user: Option<&String>,
+        name: Option<String>,
+        workflow_name: Option<String>,
+        updated_time_range: Option<(String, String)>,
+        tag_ids: Option<Vec<u64>>,
+        page: u64,
+        page_size: u64,
+    ) -> Result<(Vec<WorkflowTimerWithTeamModel>, u64)> {
+        let mut select = WorkflowTimer::find()
+            .column_as(workflow::Column::Name, "workflow_name")
+            .column(workflow::Column::TeamId)
+            .column_as(team::Column::Name, "team_name")
+            .join_rev(
+                JoinType::LeftJoin,
+                WorkflowVersion::belongs_to(WorkflowTimer)
+                    .condition_type(ConditionType::All)
+                    .on_condition(|l, r| {
+                        Expr::col((l.clone(), workflow_timer::Column::WorkflowId))
+                            .equals((r.clone(), workflow_version::Column::WorkflowId))
+                            .and(
+                                Expr::col((l, workflow_timer::Column::VersionId))
+                                    .equals((r, workflow_version::Column::Id)),
+                            )
+                            .into_condition()
+                    })
+                    .into(),
+            )
+            .join_rev(
+                JoinType::LeftJoin,
+                Workflow::belongs_to(WorkflowTimer)
+                    .from(workflow::Column::Id)
+                    .to(workflow_timer::Column::WorkflowId)
+                    .into(),
+            )
+            .join_rev(
+                JoinType::LeftJoin,
+                Team::belongs_to(Workflow)
+                    .from(team::Column::Id)
+                    .to(workflow::Column::TeamId)
+                    .into(),
+            )
+            .filter(workflow_timer::Column::IsDeleted.eq(false))
+            .apply_if(name, |query, v| {
+                query.filter(workflow_timer::Column::Name.contains(v))
+            })
+            .apply_if(created_user, |query, v| {
+                query.filter(workflow_timer::Column::CreatedUser.eq(v))
+            })
+            .apply_if(updated_time_range, |query, v| {
+                query.filter(
+                    workflow_timer::Column::UpdatedTime
+                        .gt(v.0)
+                        .and(workflow_timer::Column::UpdatedTime.lt(v.1)),
+                )
+            })
+            .apply_if(workflow_name, |q, v| {
+                q.filter(workflow::Column::Name.like(v))
+            })
+            .apply_if(team_id, |q, v| q.filter(workflow::Column::TeamId.eq(v)));
+
+        match tag_ids {
+            Some(v) if v.len() > 0 => {
+                select = select.filter(
+                    Condition::any().add(
+                        workflow::Column::Id.in_subquery(
+                            Query::select()
+                                .column(tag_resource::Column::ResourceId)
+                                .and_where(
+                                    tag_resource::Column::ResourceType
+                                        .eq(ResourceType::Workflow.to_string())
+                                        .and(tag_resource::Column::TagId.is_in(v)),
+                                )
+                                .from(TagResource)
+                                .to_owned(),
+                        ),
+                    ),
+                );
+            }
+            _ => {}
+        };
+
+        let total = select.clone().count(&self.ctx.db).await?;
+
+        let list = select
+            .order_by_desc(workflow_timer::Column::Id)
+            .into_model()
+            .paginate(&self.ctx.db, page_size)
+            .fetch_page(page)
+            .await?;
+
+        Ok((list, total))
     }
 }

@@ -441,7 +441,7 @@ mod types {
         pub list: Vec<WorkflowRecord>,
     }
 
-    #[derive(Object, Serialize, Default)]
+    #[derive(Object, Serialize, Deserialize, Default)]
     pub struct ResourceTag {
         pub id: u64,
         pub tag_name: String,
@@ -650,6 +650,8 @@ mod types {
         pub id: Option<u64>,
         pub workflow_id: u64,
         pub version_id: u64,
+        pub timer_expr: serde_json::Value,
+        pub info: Option<String>,
     }
 
     #[derive(Object, Deserialize, Serialize)]
@@ -671,6 +673,9 @@ mod types {
         pub timer_expr: serde_json::Value,
         pub schedule_guid: String,
         pub is_active: bool,
+        pub tags: Option<Vec<ResourceTag>>,
+        pub team_id: u64,
+        pub team_name: Option<String>,
         pub created_user: String,
         pub updated_user: String,
         pub created_time: String,
@@ -1277,7 +1282,7 @@ impl WorkflowApi {
         return_ok!(types::DeleteVersionResp { result: ret })
     }
 
-    #[oai(path = "/save-timer", method = "post")]
+    #[oai(path = "/timer/save", method = "post")]
     pub async fn save_timer(
         &self,
         state: Data<&AppState>,
@@ -1299,6 +1304,12 @@ impl WorkflowApi {
                 &user_info,
                 workflow_timer::ActiveModel {
                     id: req.id.map_or(NotSet, |v| Set(v)),
+                    workflow_id: Set(req.workflow_id),
+                    version_id: Set(req.version_id),
+                    info: Set(req.info.unwrap_or_default()),
+                    timer_expr: Set(req.timer_expr),
+                    created_user: req.id.map_or(Set(user_info.username.clone()), |_| NotSet),
+                    updated_user: Set(user_info.username.clone()),
                     ..Default::default()
                 },
             )
@@ -1306,7 +1317,95 @@ impl WorkflowApi {
         todo!()
     }
 
-    #[oai(path = "/delete-timer", method = "post")]
+    #[oai(path = "/timer/list", method = "get")]
+    pub async fn query_timer(
+        &self,
+        state: Data<&AppState>,
+        user_info: Data<&logic::types::UserInfo>,
+        #[oai(default = "types::default_page", validator(maximum(value = "10000")))]
+        Query(page): Query<u64>,
+        #[oai(
+            default = "types::default_page_size",
+            validator(maximum(value = "10000"))
+        )]
+        Query(page_size): Query<u64>,
+        Query(updated_time_range): Query<Option<Vec<String>>>,
+        Query(search_username): Query<Option<String>>,
+        Query(workflow_name): Query<Option<String>>,
+        Query(name): Query<Option<String>>,
+        Query(tag_ids): Query<Option<Vec<u64>>>,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+    ) -> api_response!(types::QueryWorkflowTimerResp) {
+        let search_username = if state.can_manage_job(&user_info.user_id).await? {
+            search_username
+        } else {
+            team_id.map_or_else(|| Some(user_info.username.clone()), |_| search_username)
+        };
+
+        let svc = state.service();
+
+        let updated_time_range = updated_time_range.map(|v| (v[0].clone(), v[1].clone()));
+
+        let ret = svc
+            .workflow
+            .get_timer_list(
+                team_id,
+                search_username.as_ref(),
+                name,
+                workflow_name,
+                updated_time_range,
+                tag_ids,
+                page,
+                page_size,
+            )
+            .await?;
+
+        let tag_records = svc
+            .tag
+            .get_all_tag_bind_by_resource_ids(
+                ret.0.iter().map(|v| v.id).collect(),
+                logic::types::ResourceType::Workflow,
+            )
+            .await?;
+
+        let list = ret
+            .0
+            .into_iter()
+            .map(|v| types::WorkflowTimerRecord {
+                id: v.id,
+                team_name: v.team_name,
+                team_id: v.team_id,
+                created_user: v.created_user,
+                tags: Some(
+                    tag_records
+                        .iter()
+                        .filter_map(|tb| {
+                            if tb.resource_id == v.id {
+                                Some(types::ResourceTag {
+                                    id: tb.tag_id,
+                                    tag_name: tb.tag_name.clone(),
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                ),
+                workflow_id: v.workflow_id,
+                version_id: v.version_id,
+                timer_expr: v.timer_expr,
+                schedule_guid: v.schedule_guid,
+                is_active: v.is_active,
+                updated_user: v.updated_user,
+                updated_time: local_time!(v.updated_time),
+                created_time: local_time!(v.created_time),
+            })
+            .collect();
+
+        return_ok!(types::QueryWorkflowTimerResp { total: ret.1, list })
+    }
+
+    #[oai(path = "/timer/delete", method = "post")]
     async fn delete_timer(
         &self,
         state: Data<&AppState>,
