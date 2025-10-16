@@ -125,6 +125,11 @@ ADD
 ADD
     COLUMN deleted_by varchar(50) NOT NULL DEFAULT '' COMMENT '删除人';
 
+ALTER TABLE
+    workflow_process_node
+ADD
+    COLUMN depth INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'node depth';
+
 CREATE TABLE `workflow_timer` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
     `workflow_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'workflow id',

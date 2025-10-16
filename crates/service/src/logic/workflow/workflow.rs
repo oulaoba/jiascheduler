@@ -1179,17 +1179,6 @@ impl<'a> WorkflowLogic<'a> {
         };
 
         if is_ready {
-            WorkflowProcess::update_many()
-                .set(workflow_process::ActiveModel {
-                    current_node_id: Set(node.current_node.id.to_string()),
-                    current_node_status: Set(NodeStatus::Running.to_string()),
-                    current_run_id: Set(node.run_id.to_string()),
-                    ..Default::default()
-                })
-                .filter(workflow_process::Column::ProcessId.eq(&node.process_id))
-                .exec(&self.ctx.db)
-                .await?;
-
             let affected = WorkflowProcessNode::update_many()
                 .set(workflow_process_node::ActiveModel {
                     updated_time: Set(Local::now()),
@@ -1206,6 +1195,17 @@ impl<'a> WorkflowLogic<'a> {
             if affected > 0 {
                 return Ok(false || node.current_node.node_type == NodeType::EndEvent);
             }
+
+            WorkflowProcess::update_many()
+                .set(workflow_process::ActiveModel {
+                    current_node_id: Set(node.current_node.id.to_string()),
+                    current_node_status: Set(NodeStatus::Running.to_string()),
+                    current_run_id: Set(node.run_id.to_string()),
+                    ..Default::default()
+                })
+                .filter(workflow_process::Column::ProcessId.eq(&node.process_id))
+                .exec(&self.ctx.db)
+                .await?;
 
             WorkflowProcessNode::insert(workflow_process_node::ActiveModel {
                 process_id: Set(node.process_id.to_string()),
@@ -1379,16 +1379,16 @@ impl<'a> WorkflowLogic<'a> {
                 .exec(&self.ctx.db)
                 .await?;
 
-            WorkflowProcess::update_many()
-                .set(workflow_process::ActiveModel {
-                    current_node_id: Set(node_id.to_string()),
-                    current_node_status: Set(NodeStatus::End.to_string()),
-                    current_run_id: Set(run_id.to_string()),
-                    ..Default::default()
-                })
-                .filter(workflow_process::Column::ProcessId.eq(&process_id))
-                .exec(&self.ctx.db)
-                .await?;
+            // WorkflowProcess::update_many()
+            //     .set(workflow_process::ActiveModel {
+            //         current_node_id: Set(node_id.to_string()),
+            //         current_node_status: Set(NodeStatus::End.to_string()),
+            //         current_run_id: Set(run_id.to_string()),
+            //         ..Default::default()
+            //     })
+            //     .filter(workflow_process::Column::ProcessId.eq(&process_id))
+            //     .exec(&self.ctx.db)
+            //     .await?;
 
             let Some(fields) = params.fields else {
                 anyhow::bail!("fields is none");
