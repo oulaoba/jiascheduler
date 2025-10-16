@@ -71,7 +71,10 @@ impl Bus {
             .await
             .map_or_else(
                 |e| {
-                    warn!("failed create stream group - {}", e);
+                    if e.code() != Some("BUSYGROUP") {
+                        warn!("failed create stream group - {}", e);
+                    }
+
                     "".to_string()
                 },
                 |v| v,

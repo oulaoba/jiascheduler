@@ -1,7 +1,6 @@
 CREATE TABLE `workflow` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
     `name` varchar(100) NOT NULL DEFAULT '' COMMENT 'workflow name',
-    `timer_expr` JSON NULL COMMENT '定时表达式',
     `nodes` json DEFAULT NULL COMMENT 'workflow nodes',
     `edges` json DEFAULT NULL COMMENT 'workflow edges',
     `info` varchar(500) NOT NULL DEFAULT '' COMMENT 'describe message',
@@ -102,16 +101,46 @@ CREATE TABLE `workflow_process_edge` (
     KEY `idx_target_node_id` (`target_node_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '任务进程中连接任务的边线';
 
-ALTER TABLE job_schedule_history
-ADD COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';
+ALTER TABLE
+    job_schedule_history
+ADD
+    COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';
 
-ALTER TABLE job_timer
-ADD COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
+ALTER TABLE
+    job_timer
+ADD
+    COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
 
-ALTER TABLE job_supervisor
-ADD COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
+ALTER TABLE
+    job_supervisor
+ADD
+    COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
 
-ALTER TABLE workflow_process
-ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
-ADD COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL,
-ADD COLUMN deleted_by varchar(50) NOT NULL DEFAULT '' COMMENT '删除人';
+ALTER TABLE
+    workflow_process
+ADD
+    COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+ADD
+    COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL,
+ADD
+    COLUMN deleted_by varchar(50) NOT NULL DEFAULT '' COMMENT '删除人';
+
+CREATE TABLE `workflow_timer` (
+    `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
+    `workflow_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'workflow id',
+    `version_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'workflow version id',
+    `name` varchar(100) NOT NULL DEFAULT '' COMMENT 'workflow name',
+    `timer_expr` JSON NULL COMMENT 'timer expr',
+    `schedule_guid` varchar(100) NOT NULL DEFAULT '' COMMENT 'scheduler schedule_guid',
+    `is_active` BOOLEAN NOT NULL DEFAULT false COMMENT 'is timer active',
+    `info` VARCHAR(500) NOT NULL DEFAULT '' COMMENT 'timer info',
+    `process_args` JSON NULL COMMENT 'workflow process args',
+    `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'creator username',
+    `updated_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'updater username',
+    `created_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
+    `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
+    `is_deleted` BOOLEAN NOT NULL DEFAULT false COMMENT 'is deleted',
+    `deleted_at` timestamp NULL DEFAULT NULL COMMENT 'deleted time',
+    `deleted_by` varchar(50) NOT NULL DEFAULT '' COMMENT 'deleted by',
+    PRIMARY KEY (`id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'workflow timer';

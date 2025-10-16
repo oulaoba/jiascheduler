@@ -1,9 +1,9 @@
-use std::{pin::Pin, str::FromStr, sync::Arc, time::Duration};
+use std::{pin::Pin, str::FromStr, sync::Arc};
 
 use crate::{entity::prelude::*, logic::types::ResourceType};
 use anyhow::Result;
-use chrono::Local;
-use entity::{tag_resource, team, workflow, workflow_process, workflow_timer, workflow_version};
+
+use entity::{tag_resource, team, workflow, workflow_timer, workflow_version};
 use local_ip_address::local_ip;
 use redis::{
     AsyncCommands, from_redis_value,
@@ -78,7 +78,10 @@ impl<'a> WorkflowLogic<'a> {
             .await
             .map_or_else(
                 |e| {
-                    warn!("failed create workflow timer stream group - {}", e);
+                    if e.code() != Some("BUSYGROUP") {
+                        warn!("failed create workflow timer stream group - {}", e);
+                    }
+
                     "".to_string()
                 },
                 |v| v,
@@ -143,9 +146,8 @@ impl<'a> WorkflowLogic<'a> {
         }
     }
 
-    async fn send_timer_msg<'b>(&self, msg: WorkflowTimerTask) -> Result<String> {
+    pub async fn send_timer_msg<'b>(&self, msg: WorkflowTimerTask) -> Result<String> {
         let data = &[("t", msg)];
-
         let mut conn = self.ctx.redis().get_multiplexed_async_connection().await?;
         let v: String = conn.xadd(Self::WORKFLOW_TIMER_TOPIC, "*", data).await?;
         Ok(v)

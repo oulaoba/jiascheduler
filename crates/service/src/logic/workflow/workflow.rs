@@ -1,6 +1,5 @@
 use core::matches;
 use std::pin::Pin;
-use std::sync::Arc;
 
 use crate::logic::executor::ExecutorLogic;
 use crate::logic::job::JobLogic;
@@ -33,7 +32,6 @@ use sea_orm::{
 use sea_query::{Expr, Query};
 use serde_json::json;
 use tokio::fs;
-use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 use utils::file_name;
 
@@ -1521,7 +1519,9 @@ impl<'a> WorkflowLogic<'a> {
             .await
             .map_or_else(
                 |e| {
-                    warn!("failed create workflow stream group - {}", e);
+                    if e.code() != Some("BUSYGROUP") {
+                        warn!("failed create workflow stream group - {}", e);
+                    }
                     "".to_string()
                 },
                 |v| v,
@@ -1732,7 +1732,7 @@ impl<'a> WorkflowLogic<'a> {
 
     pub async fn save_timer(
         &self,
-        user_info: &UserInfo,
+        _user_info: &UserInfo,
         active_model: workflow_timer::ActiveModel,
     ) -> Result<u64> {
         let active_model = active_model.save(&self.ctx.db).await?;

@@ -9,6 +9,7 @@ pub struct Model {
     pub name: String,
     pub workflow_id: u64,
     pub version_id: u64,
+    pub process_args: Option<Json>,
     pub timer_expr: Json,
     pub schedule_guid: String,
     pub is_active: bool,

@@ -1,13 +1,16 @@
 use anyhow::{Context, Result};
-use entity::{prelude::Workflow, workflow_timer};
+use entity::workflow_timer;
 use poem::{web::Data, Endpoint, EndpointExt};
 use poem_openapi::{
     param::{Header, Query},
     payload::Json,
     OpenApi,
 };
-use sea_orm::{ActiveValue::NotSet, ActiveValue::Set, EntityTrait};
-use service::logic::workflow::types::{EdgeConfig, NodeConfig};
+use sea_orm::{ActiveValue::NotSet, ActiveValue::Set};
+use service::logic::workflow::{
+    timer::WorkflowTimerTask,
+    types::{EdgeConfig, NodeConfig},
+};
 
 use crate::{api_response, local_time, logic, middleware, return_err, return_ok, state::AppState};
 
@@ -691,6 +694,17 @@ mod types {
     #[derive(Object, Serialize, Default, Deserialize)]
     pub struct DeleteTimerResp {
         pub result: u64,
+    }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct ScheduleTimerReq {
+        pub id: u64,
+        pub action: String,
+    }
+
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct ScheduleTimerResp {
+        pub result: String,
     }
 }
 
@@ -1424,5 +1438,39 @@ impl WorkflowApi {
 
         let ret = svc.workflow.delete_timer(&user_info, req.id).await?;
         return_ok!(types::DeleteTimerResp { result: ret })
+    }
+
+    #[oai(path = "/timer/schedule", method = "post")]
+    async fn schedule_timer(
+        &self,
+        state: Data<&AppState>,
+        user_info: Data<&logic::types::UserInfo>,
+        Json(req): Json<types::ScheduleTimerReq>,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+    ) -> api_response!(types::ScheduleTimerResp) {
+        let svc = state.service();
+        if !svc
+            .workflow
+            .can_write_timer(&user_info, team_id, Some(req.id))
+            .await?
+        {
+            return_err!("no permission");
+        }
+
+        let ret = match req.action.as_ref() {
+            "start_timer" => {
+                svc.workflow
+                    .send_timer_msg(WorkflowTimerTask::StartTimer(req.id))
+                    .await?
+            }
+            "stop_timer" => {
+                svc.workflow
+                    .send_timer_msg(WorkflowTimerTask::StopTimer(req.id))
+                    .await?
+            }
+            _ => return_err!(format!("not support {}", req.action)),
+        };
+
+        return_ok!(types::ScheduleTimerResp { result: ret });
     }
 }
