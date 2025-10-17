@@ -248,14 +248,12 @@ impl<'a> WorkflowLogic<'a> {
                 WorkflowVersion::belongs_to(WorkflowTimer)
                     .condition_type(ConditionType::All)
                     .on_condition(|l, r| {
-                        Expr::col((l.clone(), workflow_timer::Column::WorkflowId))
-                            .equals((r.clone(), workflow_version::Column::WorkflowId))
-                            .and(
-                                Expr::col((l, workflow_timer::Column::VersionId))
-                                    .equals((r, workflow_version::Column::Id)),
-                            )
+                        Expr::col((l, workflow_version::Column::Id))
+                            .equals((r, workflow_timer::Column::VersionId))
                             .into_condition()
                     })
+                    .from(workflow_version::Column::WorkflowId)
+                    .to(workflow_timer::Column::WorkflowId)
                     .into(),
             )
             .join_rev(
