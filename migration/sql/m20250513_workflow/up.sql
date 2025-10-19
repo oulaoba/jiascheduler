@@ -45,6 +45,9 @@ CREATE TABLE `workflow_process` (
     `created_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
     `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
     `process_args` json DEFAULT NULL COMMENT 'process args',
+    `is_deleted` BOOLEAN NOT NULL DEFAULT false COMMENT 'is deleted',
+    `deleted_at` timestamp NULL DEFAULT NULL COMMENT 'deleted time',
+    `deleted_by` varchar(50) NOT NULL DEFAULT '' COMMENT 'deleted by',
     PRIMARY KEY (`id`)
 ) ENGINE = InnoDB AUTO_INCREMENT = 23 DEFAULT CHARSET = utf8mb4 COMMENT = 'workflow process';
 
@@ -116,19 +119,6 @@ ALTER TABLE
 ADD
     COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
 
-ALTER TABLE
-    workflow_process
-ADD
-    COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
-ADD
-    COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL,
-ADD
-    COLUMN deleted_by varchar(50) NOT NULL DEFAULT '' COMMENT '删除人';
-
-ALTER TABLE
-    workflow_process_node
-ADD
-    COLUMN depth INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'node depth';
 
 CREATE TABLE `workflow_timer` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',

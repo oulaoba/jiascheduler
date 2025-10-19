@@ -19,9 +19,5 @@ ALTER TABLE
 ALTER TABLE
     job_supervisor DROP COLUMN `job_args`;
 
-alter table
-    workflow_process drop column is_deleted,
-    drop column deleted_at,
-    drop column deleted_by;
 
 DROP TABLE IF EXISTS `workflow_timer`;
