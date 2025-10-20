@@ -1,8 +1,12 @@
 use std::{pin::Pin, str::FromStr, sync::Arc};
 
-use crate::{entity::prelude::*, logic::types::ResourceType};
-use anyhow::Result;
+use crate::{
+    entity::prelude::*,
+    logic::types::{CustomTimerExpr, ResourceType},
+};
+use anyhow::{Result, anyhow};
 
+use chrono::{Local, Utc};
 use entity::{tag_resource, team, workflow, workflow_timer, workflow_version};
 use local_ip_address::local_ip;
 use redis::{
@@ -18,7 +22,7 @@ use sea_orm::{EntityTrait, QueryFilter};
 use sea_query::{ConditionType, Expr, IntoCondition, Query};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tokio_cron_scheduler::{Job, JobScheduler};
+use tokio_cron_scheduler::{Job, JobBuilder, JobScheduler};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -171,17 +175,40 @@ impl<'a> WorkflowLogic<'a> {
         timer: workflow_timer::Model,
         sched: JobScheduler,
     ) -> Result<()> {
-        let job = Job::new_async(timer.timer_expr, |uuid, mut l| {
-            Box::pin(async move {
-                println!("I run async every 7 seconds");
-                // Query the next execution time for this job
-                let next_tick = l.next_tick_for_job(uuid).await;
-                match next_tick {
-                    Ok(Some(ts)) => println!("Next time for 7s job is {:?}", ts),
-                    _ => println!("Could not get next tick for 7s job"),
-                }
-            })
-        })?;
+        let timer_expr: CustomTimerExpr = serde_json::from_str(
+            timer
+                .timer_expr
+                .as_str()
+                .ok_or(anyhow!("not set time expr"))?,
+        )?;
+
+        let job = match timer_expr.timezone.as_str() {
+            "utc" => {
+                let job = Job::new_async_tz(timer.timer_expr, Utc, |uuid, mut l| {
+                    Box::pin(async move {
+                        let next_tick = l.next_tick_for_job(uuid).await;
+                        match next_tick {
+                            Ok(Some(ts)) => println!("Next time for 7s job is {:?}", ts),
+                            _ => println!("Could not get next tick for 7s job"),
+                        }
+                    })
+                })?;
+                job
+            }
+            "local" => {
+                let job = Job::new_async_tz(timer.timer_expr, Local, |uuid, mut l| {
+                    Box::pin(async move {
+                        let next_tick = l.next_tick_for_job(uuid).await;
+                        match next_tick {
+                            Ok(Some(ts)) => println!("Next time for 7s job is {:?}", ts),
+                            _ => println!("Could not get next tick for 7s job"),
+                        }
+                    })
+                })?;
+                job
+            }
+            _ => anyhow::bail!("not support timezone"),
+        };
 
         WorkflowTimer::update(workflow_timer::ActiveModel {
             id: Set(timer.id),
@@ -207,6 +234,7 @@ impl<'a> WorkflowLogic<'a> {
         let Some(timer_record) = timer_record else {
             return Ok(());
         };
+
         self.add_job_to_scheduler(timer_record, sched).await
     }
 

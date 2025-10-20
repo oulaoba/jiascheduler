@@ -186,3 +186,9 @@ pub enum CompletedCallbackTriggerType {
     #[serde(rename = "error")]
     Error,
 }
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct CustomTimerExpr {
+    pub timezone: String,
+    pub expr: String,
+}

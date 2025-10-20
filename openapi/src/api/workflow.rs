@@ -1,4 +1,8 @@
+use std::str::FromStr;
+
 use anyhow::{Context, Result};
+use chrono::Local;
+use croner::Cron;
 use entity::workflow_timer;
 use poem::{web::Data, Endpoint, EndpointExt};
 use poem_openapi::{
@@ -653,13 +657,20 @@ mod types {
         pub id: Option<u64>,
         pub workflow_id: u64,
         pub version_id: u64,
-        pub timer_expr: serde_json::Value,
+        pub timer_expr: CustomTimerExpr,
         pub info: Option<String>,
     }
 
-    #[derive(Object, Deserialize, Serialize)]
+    #[derive(Object, Serialize, Default, Deserialize)]
+    pub struct CustomTimerExpr {
+        pub timezone: String,
+        pub expr: String,
+    }
+
+    #[derive(Object, Deserialize, Serialize, Default)]
     pub struct SaveWorkflowTimerResp {
         pub result: u64,
+        pub next_exec_time: String,
     }
 
     #[derive(Object, Serialize, Default)]
@@ -1313,7 +1324,18 @@ impl WorkflowApi {
             return_err!("no permission");
         }
 
-        svc.workflow
+        let parsed_cron = match Cron::from_str(&req.timer_expr.expr) {
+            Err(e) => return_err!(format!("{}", e.to_string())),
+            Ok(v) => v,
+        };
+        let now = Local::now();
+        let next_time = match parsed_cron.find_next_occurrence(&now, false) {
+            Err(e) => return_err!(format!("{}", e.to_string())),
+            Ok(v) => v,
+        };
+
+        let ret = svc
+            .workflow
             .save_timer(
                 &user_info,
                 workflow_timer::ActiveModel {
@@ -1321,14 +1343,18 @@ impl WorkflowApi {
                     workflow_id: Set(req.workflow_id),
                     version_id: Set(req.version_id),
                     info: Set(req.info.unwrap_or_default()),
-                    timer_expr: Set(req.timer_expr),
+                    timer_expr: Set(serde_json::to_value(&req.timer_expr)
+                        .expect("failed encode timer_expr to json")),
                     created_user: req.id.map_or(Set(user_info.username.clone()), |_| NotSet),
                     updated_user: Set(user_info.username.clone()),
                     ..Default::default()
                 },
             )
             .await?;
-        todo!()
+        return_ok!(types::SaveWorkflowTimerResp {
+            result: ret,
+            next_exec_time: next_time.to_string()
+        })
     }
 
     #[oai(path = "/timer/list", method = "get")]
