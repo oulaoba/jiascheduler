@@ -169,13 +169,19 @@ impl<'a> TagLogic<'a> {
                     .to(tag_resource::Column::ResourceId)
                     .into(),
             ),
-            ResourceType::Workflow => select.join_rev(
-                JoinType::LeftJoin,
-                Workflow::belongs_to(TagResource)
-                    .from(workflow::Column::Id)
-                    .to(tag_resource::Column::ResourceId)
-                    .into(),
-            ),
+            ResourceType::Workflow => select
+                .join_rev(
+                    JoinType::LeftJoin,
+                    Workflow::belongs_to(TagResource)
+                        .from(workflow::Column::Id)
+                        .to(tag_resource::Column::ResourceId)
+                        .into(),
+                )
+                .filter(workflow::Column::IsDeleted.eq(false))
+                .apply_if(team_id, |q, v| q.filter(workflow::Column::TeamId.eq(v)))
+                .apply_if(username, |q, v| {
+                    q.filter(workflow::Column::CreatedUser.eq(v))
+                }),
         };
 
         let tag_count: Vec<types::TagCount> = select

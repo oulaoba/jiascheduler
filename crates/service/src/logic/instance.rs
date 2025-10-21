@@ -21,6 +21,7 @@ use sea_query::UnionType;
 use sea_query::{ConditionType, Expr, IntoCondition, OnConflict};
 use tracing::warn;
 
+use crate::IdGenerator;
 use crate::entity::instance_role;
 use crate::entity::tag;
 use crate::entity::tag_resource;
@@ -28,7 +29,6 @@ use crate::entity::user;
 use crate::entity::{self, instance, instance_group, prelude::*, user_server};
 use crate::state::AppContext;
 use crate::state::AppState;
-use crate::IdGenerator;
 use anyhow::Result;
 
 use super::job::types::InstanceStatSummary;
@@ -137,9 +137,7 @@ impl<'a> InstanceLogic<'a> {
             })
             .on_conflict(updated)
             .exec(&self.ctx.db)
-            .await
-            .context("failed insert instance")
-            .map_err(|v| warn!("{v:?}"));
+            .await;
         } else {
             Instance::update_many()
                 .set(instance::ActiveModel {

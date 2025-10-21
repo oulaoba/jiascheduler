@@ -344,7 +344,7 @@ impl<'a> WorkflowLogic<'a> {
             .order_by_desc(workflow_timer::Column::Id)
             .into_model()
             .paginate(&self.ctx.db, page_size)
-            .fetch_page(page)
+            .fetch_page(page - 1)
             .await?;
 
         Ok((list, total))

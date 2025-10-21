@@ -655,6 +655,7 @@ mod types {
     #[derive(Object, Serialize, Default, Deserialize)]
     pub struct SaveWorkflowTimerReq {
         pub id: Option<u64>,
+        pub name: String,
         pub workflow_id: u64,
         pub version_id: u64,
         pub timer_expr: CustomTimerExpr,
@@ -670,7 +671,7 @@ mod types {
     #[derive(Object, Deserialize, Serialize, Default)]
     pub struct SaveWorkflowTimerResp {
         pub result: u64,
-        pub next_exec_time: String,
+        pub next_exec_times: Vec<String>,
     }
 
     #[derive(Object, Serialize, Default)]
@@ -682,7 +683,10 @@ mod types {
     #[derive(Object, Serialize, Default, Deserialize)]
     pub struct WorkflowTimerRecord {
         pub id: u64,
+        pub name: String,
+        pub info: String,
         pub workflow_id: u64,
+        pub workflow_name: String,
         pub version_id: u64,
         pub timer_expr: serde_json::Value,
         pub schedule_guid: String,
@@ -895,7 +899,7 @@ impl WorkflowApi {
         Query(page_size): Query<u64>,
         Query(username): Query<Option<String>>,
         Query(workflow_id): Query<u64>,
-        Query(default_id): Query<Option<u64>>,
+        Query(id): Query<Option<u64>>,
         #[oai(name = "X-Team-Id")] Header(_team_id): Header<Option<u64>>,
         #[oai(default)] Query(version): Query<Option<String>>,
     ) -> api_response!(types::QueryWorkflowVersionResp) {
@@ -907,7 +911,7 @@ impl WorkflowApi {
                 version,
                 username,
                 workflow_id,
-                default_id,
+                id,
                 page,
                 page_size,
             )
@@ -1325,14 +1329,23 @@ impl WorkflowApi {
         }
 
         let parsed_cron = match Cron::from_str(&req.timer_expr.expr) {
-            Err(e) => return_err!(format!("{}", e.to_string())),
+            Err(e) => return_err!(format!("failed parse cron expr, {}", e.to_string())),
             Ok(v) => v,
         };
-        let now = Local::now();
-        let next_time = match parsed_cron.find_next_occurrence(&now, false) {
-            Err(e) => return_err!(format!("{}", e.to_string())),
-            Ok(v) => v,
-        };
+        let mut now = Local::now();
+        let mut next_exec_times: Vec<String> = vec![];
+
+        for _ in 0..10 {
+            let next_time = match parsed_cron.find_next_occurrence(&now, false) {
+                Err(e) => return_err!(format!(
+                    "failed find next execution time, {}",
+                    e.to_string()
+                )),
+                Ok(v) => v,
+            };
+            next_exec_times.push(local_time!(next_time));
+            now = next_time
+        }
 
         let ret = svc
             .workflow
@@ -1342,6 +1355,7 @@ impl WorkflowApi {
                     id: req.id.map_or(NotSet, |v| Set(v)),
                     workflow_id: Set(req.workflow_id),
                     version_id: Set(req.version_id),
+                    name: Set(req.name),
                     info: Set(req.info.unwrap_or_default()),
                     timer_expr: Set(serde_json::to_value(&req.timer_expr)
                         .expect("failed encode timer_expr to json")),
@@ -1353,7 +1367,7 @@ impl WorkflowApi {
             .await?;
         return_ok!(types::SaveWorkflowTimerResp {
             result: ret,
-            next_exec_time: next_time.to_string()
+            next_exec_times,
         })
     }
 
@@ -1413,9 +1427,12 @@ impl WorkflowApi {
             .into_iter()
             .map(|v| types::WorkflowTimerRecord {
                 id: v.id,
+                name: v.name,
                 team_name: v.team_name,
                 team_id: v.team_id,
+                workflow_name: v.workflow_name,
                 created_user: v.created_user,
+                info: v.info,
                 tags: Some(
                     tag_records
                         .iter()

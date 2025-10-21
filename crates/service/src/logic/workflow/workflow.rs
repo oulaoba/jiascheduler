@@ -192,7 +192,7 @@ impl<'a> WorkflowLogic<'a> {
         version: Option<String>,
         created_user: Option<String>,
         workflow_id: u64,
-        default_id: Option<u64>,
+        id: Option<u64>,
         page: u64,
         page_size: u64,
     ) -> Result<(Vec<workflow_version::Model>, u64)> {
@@ -204,13 +204,11 @@ impl<'a> WorkflowLogic<'a> {
             .apply_if(version, |q, v| {
                 q.filter(workflow_version::Column::Version.contains(v))
             })
+            .apply_if(id, |q, v| q.filter(workflow_version::Column::Id.eq(v)))
             .filter(workflow_version::Column::IsDeleted.eq(false));
 
         let total = select.clone().count(&self.ctx.db).await?;
         let ret = select
-            .apply_if(default_id, |query, v| {
-                query.order_by_desc(Expr::expr(workflow::Column::Id.eq(v)))
-            })
             .order_by_desc(workflow_version::Column::Id)
             .paginate(&self.ctx.db, page_size)
             .fetch_page(page - 1)
