@@ -58,6 +58,7 @@ leader-election.workspace = true
 entity.workspace = true
 service.workspace = true
 croner.workspace = true
+tokio-cron-scheduler.workspace = true
 
 
 [target.'cfg(unix)'.dependencies]

@@ -1738,6 +1738,17 @@ impl<'a> WorkflowLogic<'a> {
     }
 
     pub async fn delete_timer(&self, user_info: &UserInfo, id: u64) -> Result<u64> {
+        let Some(data) = WorkflowTimer::find()
+            .filter(workflow_timer::Column::Id.eq(id))
+            .one(&self.ctx.db)
+            .await?
+        else {
+            anyhow::bail!("not found");
+        };
+        if data.is_active {
+            anyhow::bail!("cannot delete running timer");
+        }
+
         let ret = WorkflowTimer::update_many()
             .set(workflow_timer::ActiveModel {
                 is_deleted: Set(true),

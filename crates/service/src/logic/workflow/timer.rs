@@ -4,7 +4,7 @@ use crate::{
     entity::prelude::*,
     logic::types::{CustomTimerExpr, ResourceType},
 };
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 
 use chrono::{Local, Utc};
 use entity::{tag_resource, team, workflow, workflow_timer, workflow_version};
@@ -175,16 +175,11 @@ impl<'a> WorkflowLogic<'a> {
         timer: workflow_timer::Model,
         sched: JobScheduler,
     ) -> Result<()> {
-        let timer_expr: CustomTimerExpr = serde_json::from_str(
-            timer
-                .timer_expr
-                .as_str()
-                .ok_or(anyhow!("not set time expr"))?,
-        )?;
+        let timer_expr: CustomTimerExpr = serde_json::from_value(timer.timer_expr)?;
 
         let job = match timer_expr.timezone.as_str() {
             "utc" => {
-                let job = Job::new_async_tz(timer.timer_expr, Utc, |uuid, mut l| {
+                let job = Job::new_async_tz(&timer_expr.expr, Utc, |uuid, mut l| {
                     Box::pin(async move {
                         let next_tick = l.next_tick_for_job(uuid).await;
                         match next_tick {
@@ -196,7 +191,7 @@ impl<'a> WorkflowLogic<'a> {
                 job
             }
             "local" => {
-                let job = Job::new_async_tz(timer.timer_expr, Local, |uuid, mut l| {
+                let job = Job::new_async_tz(&timer_expr.expr, Local, |uuid, mut l| {
                     Box::pin(async move {
                         let next_tick = l.next_tick_for_job(uuid).await;
                         match next_tick {
@@ -226,7 +221,6 @@ impl<'a> WorkflowLogic<'a> {
     pub async fn start_timer(&self, timer_id: u64, sched: JobScheduler) -> Result<()> {
         let timer_record = WorkflowTimer::find()
             .filter(workflow_timer::Column::Id.eq(timer_id))
-            .filter(workflow_timer::Column::IsActive.eq(true))
             .filter(workflow_timer::Column::IsDeleted.eq(false))
             .one(&self.ctx.db)
             .await?;
@@ -234,6 +228,14 @@ impl<'a> WorkflowLogic<'a> {
         let Some(timer_record) = timer_record else {
             return Ok(());
         };
+
+        WorkflowTimer::update(workflow_timer::ActiveModel {
+            id: Set(timer_id),
+            is_active: Set(true),
+            ..Default::default()
+        })
+        .exec(&self.ctx.db)
+        .await?;
 
         self.add_job_to_scheduler(timer_record, sched).await
     }
@@ -241,7 +243,6 @@ impl<'a> WorkflowLogic<'a> {
     pub async fn stop_timer(&self, timer_id: u64, sched: JobScheduler) -> Result<()> {
         let timer_record = WorkflowTimer::find()
             .filter(workflow_timer::Column::Id.eq(timer_id))
-            .filter(workflow_timer::Column::IsActive.eq(true))
             .filter(workflow_timer::Column::IsDeleted.eq(false))
             .one(&self.ctx.db)
             .await?;
@@ -249,6 +250,14 @@ impl<'a> WorkflowLogic<'a> {
         let Some(timer_record) = timer_record else {
             return Ok(());
         };
+
+        WorkflowTimer::update(workflow_timer::ActiveModel {
+            id: Set(timer_id),
+            is_active: Set(false),
+            ..Default::default()
+        })
+        .exec(&self.ctx.db)
+        .await?;
 
         sched
             .remove(&Uuid::from_str(&timer_record.schedule_guid)?)

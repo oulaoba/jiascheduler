@@ -1328,10 +1328,16 @@ impl WorkflowApi {
             return_err!("no permission");
         }
 
-        let parsed_cron = match Cron::from_str(&req.timer_expr.expr) {
+        let parsed_expr = match tokio_cron_scheduler::Job::schedule_to_cron(&req.timer_expr.expr) {
             Err(e) => return_err!(format!("failed parse cron expr, {}", e.to_string())),
             Ok(v) => v,
         };
+
+        let parsed_cron = match Cron::from_str(&parsed_expr) {
+            Err(e) => return_err!(format!("failed build cron, {}", e.to_string())),
+            Ok(v) => v,
+        };
+
         let mut now = Local::now();
         let mut next_exec_times: Vec<String> = vec![];
 
