@@ -16,6 +16,7 @@ pub struct Model {
     pub next_time: Option<DateTimeLocal>,
     pub prev_time: Option<DateTimeLocal>,
     pub info: String,
+    pub startup_error: String,
     pub created_user: String,
     pub updated_user: String,
     pub created_time: DateTimeLocal,

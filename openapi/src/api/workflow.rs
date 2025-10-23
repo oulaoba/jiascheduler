@@ -691,6 +691,7 @@ mod types {
         pub version_id: u64,
         pub timer_expr: serde_json::Value,
         pub schedule_guid: String,
+        pub startup_error: String,
         pub is_active: bool,
         pub tags: Option<Vec<ResourceTag>>,
         pub team_id: u64,
@@ -1221,6 +1222,7 @@ impl WorkflowApi {
                 &user_info,
                 req.workflow_id,
                 req.version_id,
+                None,
                 req.process_name,
                 process_args,
             )
@@ -1438,6 +1440,7 @@ impl WorkflowApi {
                 timer_expr: v.timer_expr,
                 schedule_guid: v.schedule_guid,
                 is_active: v.is_active,
+                startup_error: v.startup_error,
                 updated_user: v.updated_user,
                 updated_time: local_time!(v.updated_time),
                 created_time: local_time!(v.created_time),

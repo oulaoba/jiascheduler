@@ -1415,6 +1415,7 @@ impl<'a> WorkflowLogic<'a> {
         user_info: &UserInfo,
         workflow_id: u64,
         version_id: u64,
+        timer_id: Option<u64>,
         process_name: String,
         process_args: Option<WorkflowProcessArgs>,
     ) -> Result<String> {
@@ -1498,6 +1499,7 @@ impl<'a> WorkflowLogic<'a> {
             current_node_id: Set(curr_node_id),
             current_node_status: Set(NodeStatus::Prepare.to_string()),
             created_user: Set(user_info.username.clone()),
+            timer_id: timer_id.map_or(NotSet, Set),
             ..Default::default()
         })
         .exec(&self.ctx.db)

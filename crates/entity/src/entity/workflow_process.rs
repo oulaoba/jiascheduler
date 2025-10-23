@@ -12,6 +12,7 @@ pub struct Model {
     pub process_name: String,
     pub workflow_id: u64,
     pub version_id: u64,
+    pub timer_id: u64,
     pub process_args: Option<Json>,
     pub process_status: String,
     pub current_run_id: String,
