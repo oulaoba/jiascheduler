@@ -119,7 +119,6 @@ ALTER TABLE
 ADD
     COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
 
-
 CREATE TABLE `workflow_timer` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
     `workflow_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'workflow id',
@@ -132,6 +131,8 @@ CREATE TABLE `workflow_timer` (
     `process_args` JSON NULL COMMENT 'workflow process args',
     `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'creator username',
     `updated_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'updater username',
+    `next_time` timestamp NULL DEFAULT NULL COMMENT 'next execution time',
+    `prev_time` timestamp NULL DEFAULT NULL COMMENT 'prev execution time',
     `created_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
     `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'updated time',
     `is_deleted` BOOLEAN NOT NULL DEFAULT false COMMENT 'is deleted',

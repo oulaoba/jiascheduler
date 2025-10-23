@@ -5034,6 +5034,8 @@ dependencies = [
  "casbin",
  "chrono",
  "config",
+ "croner",
+ "english-to-cron",
  "entity",
  "evalexpr",
  "expr-lang",

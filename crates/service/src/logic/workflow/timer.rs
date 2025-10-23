@@ -2,7 +2,7 @@ use std::{pin::Pin, str::FromStr, sync::Arc};
 
 use crate::{
     entity::prelude::*,
-    logic::types::{CustomTimerExpr, ResourceType},
+    logic::types::{CustomTimerExpr, ResourceType, UserInfo},
 };
 use anyhow::{Context, Result, anyhow};
 
@@ -176,28 +176,112 @@ impl<'a> WorkflowLogic<'a> {
         sched: JobScheduler,
     ) -> Result<()> {
         let timer_expr: CustomTimerExpr = serde_json::from_value(timer.timer_expr)?;
+        let ctx = self.ctx.clone();
+        let workflow_id = timer.workflow_id;
+        let version_id = timer.version_id;
+        let timer_id = timer.id;
+        let workflow_record = Workflow::find()
+            .filter(workflow::Column::Id.eq(workflow_id))
+            .filter(workflow::Column::IsDeleted.eq(false))
+            .one(&self.ctx.db)
+            .await?
+            .ok_or(anyhow!("not found workflow {}", workflow_id))?;
 
         let job = match timer_expr.timezone.as_str() {
             "utc" => {
-                let job = Job::new_async_tz(&timer_expr.expr, Utc, |uuid, mut l| {
+                let job = Job::new_async_tz(&timer_expr.expr, Utc, move |uuid, mut l| {
+                    let ctx_clone = ctx.clone();
+                    let process_name = workflow_record.name.clone();
+                    let now = Local::now();
                     Box::pin(async move {
+                        let svc = ctx_clone.service();
+                        if let Err(e) = svc
+                            .workflow
+                            .start_process(
+                                &UserInfo {
+                                    ..Default::default()
+                                },
+                                workflow_id,
+                                version_id,
+                                process_name,
+                                None,
+                            )
+                            .await
+                        {
+                            error!(
+                                "failed start process, {}, workflow_id: {}, version_id: {}",
+                                e.to_string(),
+                                workflow_id,
+                                version_id
+                            );
+                        }
+
                         let next_tick = l.next_tick_for_job(uuid).await;
                         match next_tick {
-                            Ok(Some(ts)) => println!("Next time for 7s job is {:?}", ts),
-                            _ => println!("Could not get next tick for 7s job"),
-                        }
+                            Ok(Some(ts)) => {
+                                WorkflowTimer::update(workflow_timer::ActiveModel {
+                                    id: Set(timer_id),
+                                    prev_time: Set(Some(now)),
+                                    next_time: Set(Some(ts.with_timezone(&Local))),
+                                    ..Default::default()
+                                });
+                            }
+                            Err(e) => error!(
+                                "Could not get next tick for workflow:{}, {}",
+                                workflow_id,
+                                e.to_string()
+                            ),
+                            _ => (),
+                        };
                     })
                 })?;
                 job
             }
             "local" => {
-                let job = Job::new_async_tz(&timer_expr.expr, Local, |uuid, mut l| {
+                let job = Job::new_async_tz(&timer_expr.expr, Local, move |uuid, mut l| {
+                    let ctx_clone = ctx.clone();
+                    let process_name = workflow_record.name.clone();
+                    let now = Local::now();
                     Box::pin(async move {
+                        let svc = ctx_clone.service();
+                        if let Err(e) = svc
+                            .workflow
+                            .start_process(
+                                &UserInfo {
+                                    ..Default::default()
+                                },
+                                workflow_id,
+                                version_id,
+                                process_name,
+                                None,
+                            )
+                            .await
+                        {
+                            error!(
+                                "failed start process, {}, workflow_id: {}, version_id: {}",
+                                e.to_string(),
+                                workflow_id,
+                                version_id
+                            );
+                        }
+
                         let next_tick = l.next_tick_for_job(uuid).await;
                         match next_tick {
-                            Ok(Some(ts)) => println!("Next time for 7s job is {:?}", ts),
-                            _ => println!("Could not get next tick for 7s job"),
-                        }
+                            Ok(Some(ts)) => {
+                                WorkflowTimer::update(workflow_timer::ActiveModel {
+                                    id: Set(timer_id),
+                                    prev_time: Set(Some(now)),
+                                    next_time: Set(Some(ts.with_timezone(&Local))),
+                                    ..Default::default()
+                                });
+                            }
+                            Err(e) => error!(
+                                "Could not get next tick for workflow:{}, {}",
+                                workflow_id,
+                                e.to_string()
+                            ),
+                            _ => (),
+                        };
                     })
                 })?;
                 job

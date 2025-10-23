@@ -14,6 +14,7 @@ use sea_orm::{ActiveValue::NotSet, ActiveValue::Set};
 use service::logic::workflow::{
     timer::WorkflowTimerTask,
     types::{EdgeConfig, NodeConfig},
+    WorkflowLogic,
 };
 
 use crate::{api_response, local_time, logic, middleware, return_err, return_ok, state::AppState};
@@ -1328,30 +1329,8 @@ impl WorkflowApi {
             return_err!("no permission");
         }
 
-        let parsed_expr = match tokio_cron_scheduler::Job::schedule_to_cron(&req.timer_expr.expr) {
-            Err(e) => return_err!(format!("failed parse cron expr, {}", e.to_string())),
-            Ok(v) => v,
-        };
-
-        let parsed_cron = match Cron::from_str(&parsed_expr) {
-            Err(e) => return_err!(format!("failed build cron, {}", e.to_string())),
-            Ok(v) => v,
-        };
-
-        let mut now = Local::now();
-        let mut next_exec_times: Vec<String> = vec![];
-
-        for _ in 0..10 {
-            let next_time = match parsed_cron.find_next_occurrence(&now, false) {
-                Err(e) => return_err!(format!(
-                    "failed find next execution time, {}",
-                    e.to_string()
-                )),
-                Ok(v) => v,
-            };
-            next_exec_times.push(local_time!(next_time));
-            now = next_time
-        }
+        let next_exec_times =
+            WorkflowLogic::check_timer_expr(&req.timer_expr.timezone, &req.timer_expr.expr)?;
 
         let ret = svc
             .workflow

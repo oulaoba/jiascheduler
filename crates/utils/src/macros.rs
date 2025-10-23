@@ -5,6 +5,7 @@ macro_rules! local_time {
         $time
             .with_timezone(&chrono::Local)
             .naive_local()
+            .format("%Y/%m/%d %H:%M:%S")
             .to_string()
     };
 }

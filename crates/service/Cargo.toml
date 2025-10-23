@@ -40,3 +40,5 @@ handlebars.workspace = true
 expr-lang.workspace = true
 tokio-cron-scheduler.workspace = true
 uuid.workspace = true
+english-to-cron.workspace = true
+croner.workspace = true

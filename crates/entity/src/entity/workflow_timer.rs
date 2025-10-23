@@ -13,6 +13,8 @@ pub struct Model {
     pub timer_expr: Json,
     pub schedule_guid: String,
     pub is_active: bool,
+    pub next_time: Option<DateTimeLocal>,
+    pub prev_time: Option<DateTimeLocal>,
     pub info: String,
     pub created_user: String,
     pub updated_user: String,
