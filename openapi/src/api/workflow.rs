@@ -1,8 +1,4 @@
-use std::str::FromStr;
-
 use anyhow::{Context, Result};
-use chrono::Local;
-use croner::Cron;
 use entity::workflow_timer;
 use poem::{web::Data, Endpoint, EndpointExt};
 use poem_openapi::{
@@ -600,6 +596,12 @@ mod types {
     }
     #[derive(Default, Object, Serialize)]
     pub struct WorkflowProcessRecord {
+        pub workflow_id: u64,
+        pub workflow_name: String,
+        pub timer_id: u64,
+        pub timer_name: Option<String>,
+        pub version_id: u64,
+        pub version: String,
         pub process_id: String,
         pub process_name: String,
         pub created_user: String,
@@ -1146,6 +1148,12 @@ impl WorkflowApi {
                     .find_map(|arr| arr.iter().find(|node| node.id == v.current_node_id));
 
                 types::WorkflowProcessRecord {
+                    workflow_id: v.workflow_id,
+                    workflow_name: v.workflow_name,
+                    version_id: v.version_id,
+                    version: v.version,
+                    timer_id: v.timer_id,
+                    timer_name: v.timer_name,
                     process_id: v.process_id,
                     process_name: v.process_name,
                     created_user: v.created_user,

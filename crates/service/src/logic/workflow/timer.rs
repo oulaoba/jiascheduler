@@ -191,14 +191,20 @@ impl<'a> WorkflowLogic<'a> {
 
         let handler = move |uuid, mut l: JobScheduler| {
             let ctx_clone = ctx.clone();
-            let process_name = workflow_record.name.clone();
             let now = Local::now();
+            let username = timer.created_user.clone();
+            let process_name = format!(
+                "{}-{}",
+                workflow_record.name.clone(),
+                now.format("%Y%m%d%H%M%S").to_string()
+            );
             Box::pin(async move {
                 let svc = ctx_clone.service();
                 if let Err(e) = svc
                     .workflow
                     .start_process(
                         &UserInfo {
+                            username,
                             ..Default::default()
                         },
                         workflow_id,

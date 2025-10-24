@@ -126,8 +126,11 @@ impl<'a> WorkflowLogic<'a> {
     ) -> Result<(Vec<types::WorkflowProcessModel>, u64)> {
         let mut select = WorkflowProcess::find()
             .column_as(workflow::Column::TeamId, "team_id")
+            .column_as(workflow::Column::Name, "workflow_name")
             .column_as(team::Column::Name, "team_name")
             .column_as(workflow_version::Column::Nodes, "workflow_nodes")
+            .column_as(workflow_version::Column::Version, "version")
+            .column_as(workflow_timer::Column::Name, "timer_name")
             .apply_if(team_id, |q, v| q.filter(workflow::Column::TeamId.eq(v)))
             .apply_if(name, |q, v| {
                 q.filter(workflow_process::Column::ProcessName.contains(v))
@@ -143,6 +146,13 @@ impl<'a> WorkflowLogic<'a> {
                 Workflow::belongs_to(WorkflowProcess)
                     .from(workflow::Column::Id)
                     .to(workflow_process::Column::WorkflowId)
+                    .into(),
+            )
+            .join_rev(
+                JoinType::LeftJoin,
+                WorkflowTimer::belongs_to(WorkflowProcess)
+                    .from(workflow_timer::Column::Id)
+                    .to(workflow_process::Column::TimerId)
                     .into(),
             )
             .join_rev(
