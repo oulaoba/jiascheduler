@@ -8,7 +8,7 @@ use crate::logic::job::types::{DispatchData, DispatchResult, DispatchTarget};
 use crate::logic::types::{ResourceType, UserInfo};
 use crate::logic::workflow::types::{
     self, CustomJob, NodeStatus, NodeType, ProcessStatus, StandardJob, Task, TaskType,
-    WorkflowNode, WorkflowNodeActualArgs, WorkflowProcessArgs,
+    UserVariables, WorkflowNode, WorkflowNodeActualArgs, WorkflowProcessArgs,
 };
 use crate::{
     entity::{prelude::*, team_member},
@@ -36,7 +36,7 @@ use sea_query::{Expr, Query};
 use serde_json::json;
 use tokio::fs;
 use tracing::{error, info, warn};
-use utils::{file_name, local_time};
+use utils::file_name;
 
 use super::types::{EdgeConfig, NodeConfig};
 
@@ -376,16 +376,23 @@ impl<'a> WorkflowLogic<'a> {
         team_id: Option<u64>,
         nodes: Option<Vec<NodeConfig>>,
         edges: Option<Vec<EdgeConfig>>,
+        user_variables: Option<Vec<UserVariables>>,
     ) -> Result<u64> {
         let (nodes, edges) = Self::check_nodes(nodes, edges)?;
-        let nodes = nodes
-            .map(|v| serde_json::to_value(v))
-            .transpose()?
-            .map_or(NotSet, |v| Set(Some(v)));
-        let edges = edges
-            .map(|v| serde_json::to_value(v))
-            .transpose()?
-            .map_or(NotSet, |v| Set(Some(v)));
+
+        let nodes = match nodes {
+            Some(v) => Set(Some(serde_json::to_value(v)?)),
+            None => NotSet,
+        };
+
+        let edges = match edges {
+            Some(v) => Set(Some(serde_json::to_value(v)?)),
+            None => NotSet,
+        };
+        let user_variables = match user_variables {
+            Some(v) => Set(Some(serde_json::to_value(v)?)),
+            None => NotSet,
+        };
 
         let active_model = workflow::ActiveModel {
             id: id.map_or(NotSet, |v| Set(v)),
@@ -396,6 +403,7 @@ impl<'a> WorkflowLogic<'a> {
             updated_user: Set(user_info.username.clone()),
             nodes,
             edges,
+            user_variables,
             ..Default::default()
         };
 
@@ -422,6 +430,7 @@ impl<'a> WorkflowLogic<'a> {
         version_info: Option<String>,
         nodes: Option<Vec<NodeConfig>>,
         edges: Option<Vec<EdgeConfig>>,
+        user_variables: Option<UserVariables>,
         team_id: Option<u64>,
     ) -> Result<u64> {
         let (nodes, edges) = Self::check_nodes(nodes, edges)?;
@@ -431,6 +440,9 @@ impl<'a> WorkflowLogic<'a> {
             team_id: team_id.map_or(NotSet, |v| Set(v)),
             nodes: Set(nodes.clone().map(|v| serde_json::to_value(v)).transpose()?),
             edges: Set(edges.clone().map(|v| serde_json::to_value(v)).transpose()?),
+            user_variables: Set(user_variables
+                .map(|v| serde_json::to_value(v))
+                .transpose()?),
             created_user: Set(user_info.username.clone()),
             updated_user: Set(user_info.username.clone()),
             ..Default::default()
@@ -479,6 +491,7 @@ impl<'a> WorkflowLogic<'a> {
             workflow_info: workflow_record.info,
             nodes: workflow_record.nodes,
             edges: workflow_record.edges,
+            user_variables: workflow_record.user_variables,
             team_id: workflow_record.team_id,
             created_user: workflow_record.created_user,
             updated_user: workflow_record.updated_user,
@@ -502,6 +515,7 @@ impl<'a> WorkflowLogic<'a> {
         ret.version_info = Some(version_record.version_info);
         ret.nodes = version_record.nodes;
         ret.edges = version_record.edges;
+        ret.user_variables = version_record.user_variables;
 
         Ok(ret)
     }

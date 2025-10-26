@@ -13,6 +13,7 @@ pub struct Model {
     pub edges: Option<Json>,
     pub info: String,
     pub team_id: u64,
+    pub user_variables: Option<Json>,
     pub created_user: String,
     pub updated_user: String,
     pub created_time: DateTimeLocal,

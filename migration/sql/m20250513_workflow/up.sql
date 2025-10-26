@@ -3,6 +3,7 @@ CREATE TABLE `workflow` (
     `name` varchar(100) NOT NULL DEFAULT '' COMMENT 'workflow name',
     `nodes` json DEFAULT NULL COMMENT 'workflow nodes',
     `edges` json DEFAULT NULL COMMENT 'workflow edges',
+    `user_variables` json DEFAULT NULL COMMENT 'user variables',
     `info` varchar(500) NOT NULL DEFAULT '' COMMENT 'describe message',
     `team_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'team id',
     `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'creator username',
@@ -22,6 +23,7 @@ CREATE TABLE `workflow_version` (
     `version_info` varchar(500) NOT NULL DEFAULT '' COMMENT 'describe message',
     `nodes` json DEFAULT NULL COMMENT 'workflow nodes',
     `edges` json DEFAULT NULL COMMENT 'workflow edges',
+    `user_variables` json DEFAULT NULL COMMENT 'user variables',
     `team_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'team id',
     `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT 'creator username',
     `created_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'created time',
@@ -37,6 +39,7 @@ CREATE TABLE `workflow_process` (
     `process_name` varchar(100) NOT NULL DEFAULT '' COMMENT 'process name',
     `workflow_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'workflow id',
     `version_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'version id',
+    `timer_id` bigint unsigned NOT NULL default 0 COMMENT 'timer_id',
     `process_status` varchar(100) NOT NULL DEFAULT 'start_process' COMMENT 'process status',
     `current_node_id` varchar(100) NOT NULL DEFAULT '' COMMENT 'current node id',
     `current_node_status` varchar(100) NOT NULL DEFAULT '' COMMENT 'current node status',
@@ -104,20 +107,14 @@ CREATE TABLE `workflow_process_edge` (
     KEY `idx_target_node_id` (`target_node_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '任务进程中连接任务的边线';
 
-ALTER TABLE
-    job_schedule_history
-ADD
-    COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';
+ALTER TABLE job_schedule_history
+ADD COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';
 
-ALTER TABLE
-    job_timer
-ADD
-    COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
+ALTER TABLE job_timer
+ADD COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
 
-ALTER TABLE
-    job_supervisor
-ADD
-    COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
+ALTER TABLE job_supervisor
+ADD COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
 
 CREATE TABLE `workflow_timer` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',

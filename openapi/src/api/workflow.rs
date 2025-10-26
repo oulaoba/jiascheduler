@@ -13,7 +13,10 @@ use service::logic::workflow::{
     WorkflowLogic,
 };
 
-use crate::{api_response, local_time, logic, middleware, return_err, return_ok, state::AppState};
+use crate::{
+    api::workflow::types::UserVariables, api_response, local_time, logic, middleware, return_err,
+    return_ok, state::AppState,
+};
 
 mod types {
     use poem_openapi::{Enum, Object};
@@ -29,6 +32,13 @@ mod types {
         20
     }
 
+    #[derive(Object, Serialize, Deserialize, Default)]
+    pub struct UserVariables {
+        pub name: String,
+        pub val: String,
+        pub info: String,
+    }
+
     #[derive(Object, Deserialize, Serialize)]
     pub struct SaveWorkflowReq {
         pub id: Option<u64>,
@@ -36,6 +46,7 @@ mod types {
         pub info: Option<String>,
         pub nodes: Option<Vec<NodeConfig>>,
         pub edges: Option<Vec<EdgeConfig>>,
+        pub user_variables: Option<Vec<UserVariables>>,
     }
 
     #[derive(Object, Deserialize, Serialize)]
@@ -432,6 +443,7 @@ mod types {
         pub version_info: Option<String>,
         pub nodes: Option<Vec<NodeConfig>>,
         pub edges: Option<Vec<EdgeConfig>>,
+        pub user_variables: Option<UserVariables>,
     }
 
     #[derive(Object, Deserialize, Serialize)]
@@ -493,6 +505,7 @@ mod types {
         pub created_user: String,
         pub nodes: Option<Vec<NodeConfig>>,
         pub edges: Option<Vec<EdgeConfig>>,
+        pub user_variables: Option<Vec<UserVariables>>,
     }
 
     #[derive(Object, Serialize, Default)]
@@ -655,7 +668,7 @@ mod types {
         pub result: u64,
     }
 
-    #[derive(Object, Serialize, Default, Deserialize)]
+    #[derive(Object, Serialize, Default)]
     pub struct SaveWorkflowTimerReq {
         pub id: Option<u64>,
         pub name: String,
@@ -763,7 +776,22 @@ impl WorkflowApi {
         let ret = svc
             .workflow
             .save_workflow(
-                req.id, &user_info, req.name, req.info, team_id, nodes, edges,
+                req.id,
+                &user_info,
+                req.name,
+                req.info,
+                team_id,
+                nodes,
+                edges,
+                req.user_variables.map(|v| {
+                    v.iter()
+                        .map(|v| logic::workflow::types::UserVariables {
+                            name: v.name.to_string(),
+                            val: v.val.to_string(),
+                            info: v.info.to_string(),
+                        })
+                        .collect()
+                }),
             )
             .await?;
 
@@ -804,6 +832,13 @@ impl WorkflowApi {
                 req.version_info,
                 nodes,
                 edges,
+                req.user_variables.map(|v: types::UserVariables| {
+                    logic::workflow::types::UserVariables {
+                        name: v.name,
+                        val: v.val,
+                        info: v.info,
+                    }
+                }),
                 team_id,
             )
             .await?;
@@ -990,6 +1025,21 @@ impl WorkflowApi {
             .map(|v| v.into_iter().map(|v| v.try_into()).collect())
             .transpose()?;
 
+        let user_variables = ret
+            .user_variables
+            .map(|v| serde_json::from_value::<Vec<logic::workflow::types::UserVariables>>(v))
+            .transpose()
+            .context("failed convert user variables data")?
+            .map(|v| {
+                v.into_iter()
+                    .map(|v| UserVariables {
+                        name: v.name,
+                        val: v.val,
+                        info: v.info,
+                    })
+                    .collect()
+            });
+
         return_ok!(types::GetWorkflowDetailResp {
             workflow_id: ret.workflow_id,
             version_id: ret.version_id,
@@ -999,8 +1049,9 @@ impl WorkflowApi {
             workflow_info: ret.workflow_info,
             updated_time: local_time!(ret.updated_time),
             created_user: ret.created_user,
-            nodes: nodes,
-            edges: edges,
+            nodes,
+            edges,
+            user_variables,
         })
     }
 

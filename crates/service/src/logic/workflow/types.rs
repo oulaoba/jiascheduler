@@ -158,6 +158,13 @@ pub struct NodeConfig {
     pub data: serde_json::Value,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+pub struct UserVariables {
+    pub name: String,
+    pub val: String,
+    pub info: String,
+}
+
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct EdgeConfig {
     pub id: String,
@@ -176,6 +183,7 @@ pub struct WorkflowModel {
     pub team_id: u64,
     pub nodes: Option<serde_json::Value>,
     pub edges: Option<serde_json::Value>,
+    pub user_variables: Option<serde_json::Value>,
     pub team_name: Option<String>,
     pub created_user: String,
     pub updated_user: String,
@@ -215,6 +223,7 @@ pub struct WorkflowVersionDetailModel {
     pub workflow_info: String,
     pub nodes: Option<serde_json::Value>,
     pub edges: Option<serde_json::Value>,
+    pub user_variables: Option<serde_json::Value>,
     pub team_id: u64,
     pub version: Option<String>,
     pub version_info: Option<String>,
