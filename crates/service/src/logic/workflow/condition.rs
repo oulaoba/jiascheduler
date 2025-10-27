@@ -69,7 +69,12 @@ impl Condition {
         let mut outer_ctx = Context::default();
         let env = Environment::new();
 
-        if let Some(vars) = node.user_variables.as_object() {
+        if let Some(vars) = node
+            .process_args
+            .as_ref()
+            .and_then(|v| v.user_variables.as_ref())
+            .and_then(|v| v.as_object())
+        {
             vars.iter().for_each(|(k, v)| {
                 let v = v.clone();
                 global_ctx.insert(k.to_string(), v.to_string());

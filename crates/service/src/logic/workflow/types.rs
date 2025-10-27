@@ -260,6 +260,7 @@ pub struct WorkflowNodeArgs {
 pub struct WorkflowProcessArgs {
     pub default_target: Option<Vec<String>>,
     pub nodes: Option<Vec<WorkflowNodeArgs>>,
+    pub user_variables: Option<serde_json::Value>,
 }
 
 #[derive(Default, Serialize, Deserialize, Clone)]
@@ -296,7 +297,6 @@ pub struct WorkflowNode {
     pub run_id: String,
     pub origin_nodes: Vec<NodeConfig>,
     pub origin_edges: Vec<EdgeConfig>,
-    pub user_variables: serde_json::Value,
     pub process_args: Option<WorkflowProcessArgs>,
     pub flow_depth: u32,
     pub actual_args: Option<WorkflowNodeActualArgs>,

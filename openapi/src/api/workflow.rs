@@ -443,7 +443,7 @@ mod types {
         pub version_info: Option<String>,
         pub nodes: Option<Vec<NodeConfig>>,
         pub edges: Option<Vec<EdgeConfig>>,
-        pub user_variables: Option<UserVariables>,
+        pub user_variables: Option<Vec<UserVariables>>,
     }
 
     #[derive(Object, Deserialize, Serialize)]
@@ -491,6 +491,7 @@ mod types {
         pub created_user: String,
         pub nodes: Option<Vec<NodeConfig>>,
         pub edges: Option<Vec<EdgeConfig>>,
+        pub user_variables: Option<Vec<UserVariables>>,
     }
 
     #[derive(Object, Serialize, Default)]
@@ -832,12 +833,14 @@ impl WorkflowApi {
                 req.version_info,
                 nodes,
                 edges,
-                req.user_variables.map(|v: types::UserVariables| {
-                    logic::workflow::types::UserVariables {
-                        name: v.name,
-                        val: v.val,
-                        info: v.info,
-                    }
+                req.user_variables.map(|v| {
+                    v.into_iter()
+                        .map(|v| logic::workflow::types::UserVariables {
+                            name: v.name,
+                            val: v.val,
+                            info: v.info,
+                        })
+                        .collect()
                 }),
                 team_id,
             )
@@ -979,6 +982,24 @@ impl WorkflowApi {
                             .collect()
                     })
                     .transpose()?;
+
+                let user_variables = v
+                    .user_variables
+                    .map(|v| {
+                        serde_json::from_value::<Vec<logic::workflow::types::UserVariables>>(v)
+                    })
+                    .transpose()
+                    .context("failed convert user variables data")?
+                    .map(|v| {
+                        v.into_iter()
+                            .map(|v| UserVariables {
+                                name: v.name,
+                                val: v.val,
+                                info: v.info,
+                            })
+                            .collect()
+                    });
+
                 Ok(types::WorkflowVersionRecord {
                     id: v.id,
                     workflow_id: v.workflow_id,
@@ -988,6 +1009,7 @@ impl WorkflowApi {
                     edges,
                     created_time: local_time!(v.created_time),
                     created_user: v.created_user,
+                    user_variables,
                 })
             })
             .collect::<Result<_>>()?;
@@ -1259,6 +1281,7 @@ impl WorkflowApi {
         let process_args = if let Some(args) = req.process_args {
             Some(logic::workflow::types::WorkflowProcessArgs {
                 default_target: args.default_target,
+                user_variables: args.user_variables,
                 nodes: args.nodes.map_or(None, |v| {
                     Some(
                         v.into_iter()

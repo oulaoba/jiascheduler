@@ -430,19 +430,21 @@ impl<'a> WorkflowLogic<'a> {
         version_info: Option<String>,
         nodes: Option<Vec<NodeConfig>>,
         edges: Option<Vec<EdgeConfig>>,
-        user_variables: Option<UserVariables>,
+        user_variables: Option<Vec<UserVariables>>,
         team_id: Option<u64>,
     ) -> Result<u64> {
         let (nodes, edges) = Self::check_nodes(nodes, edges)?;
+
+        let user_variables_val = Set(user_variables
+            .map(|v| serde_json::to_value(v))
+            .transpose()?);
 
         workflow::ActiveModel {
             id: Set(workflow_id),
             team_id: team_id.map_or(NotSet, |v| Set(v)),
             nodes: Set(nodes.clone().map(|v| serde_json::to_value(v)).transpose()?),
             edges: Set(edges.clone().map(|v| serde_json::to_value(v)).transpose()?),
-            user_variables: Set(user_variables
-                .map(|v| serde_json::to_value(v))
-                .transpose()?),
+            user_variables: user_variables_val.clone(),
             created_user: Set(user_info.username.clone()),
             updated_user: Set(user_info.username.clone()),
             ..Default::default()
@@ -458,6 +460,7 @@ impl<'a> WorkflowLogic<'a> {
             nodes: Set(nodes.map(|v| serde_json::to_value(v)).transpose()?),
             edges: Set(edges.map(|v| serde_json::to_value(v)).transpose()?),
             created_user: Set(user_info.username.clone()),
+            user_variables: user_variables_val,
             ..Default::default()
         }
         .save(&self.ctx.db)
@@ -1504,7 +1507,6 @@ impl<'a> WorkflowLogic<'a> {
             run_id,
             origin_nodes: nodes,
             origin_edges: edges,
-            user_variables: json!({}),
             process_args: process_args.clone(),
             flow_depth: 0,
             actual_args: None,
