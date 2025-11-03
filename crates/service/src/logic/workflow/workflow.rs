@@ -646,14 +646,25 @@ impl<'a> WorkflowLogic<'a> {
                 .find_map(|v| v.iter().find(|&v| v.node_id == node.current_node.id))
         });
 
-        let formal_args = match node.current_node.task {
+        let mut formal_args = match node.current_node.task {
             Task::Standard(ref standard_job) => standard_job.formal_args.clone(),
             Task::Custom(ref custom_job) => custom_job.formal_args.clone(),
             Task::None => vec![],
         };
 
-        let mut actual_args = process_node_args.map_or(None, |v| Some(v.args.clone()));
+        let actual_args = process_node_args.map_or(None, |v| v.args.clone());
         let mut args = json!({});
+
+        if let Some(actual_args) = actual_args {
+            formal_args.iter_mut().for_each(|v| {
+                actual_args.iter().for_each(|item| {
+                    if item.name == v.name {
+                        v.val = item.val.clone();
+                        v.val_type = item.val_type.clone();
+                    }
+                });
+            });
+        }
 
         for arg in formal_args.clone() {
             if arg.val_type.eq("dynamic") {
@@ -663,45 +674,35 @@ impl<'a> WorkflowLogic<'a> {
                     .all(&self.ctx.db)
                     .await?;
 
-                actual_args = if let Some(mut v) = actual_args {
-                    v[arg.name] = serde_json::to_value(records)?;
-                    Some(v)
-                } else {
-                    Some(json!({
-                        arg.name.clone():records,
-                    }))
-                };
+                args[arg.name] = serde_json::to_value(records)?
             } else {
                 args[arg.name] = serde_json::to_value(arg.val)?;
             }
         }
 
-        if let Some(ref v) = actual_args {
-            args.as_object_mut()
-                .unwrap()
-                .extend(v.as_object().unwrap().to_owned());
-        }
-
         let code = JobLogic::get_job_code(code, Some(args.clone()))?;
 
         let mut target = match node.current_node.task.clone() {
-            Task::Standard(standard_job) => standard_job.target.unwrap_or_default(),
-            Task::Custom(custom_job) => custom_job.target.unwrap_or_default(),
-            Task::None => vec![],
+            Task::Standard(standard_job) => standard_job.target,
+            Task::Custom(custom_job) => custom_job.target,
+            Task::None => None,
         };
 
         if let Some(current_args) = process_node_args
-            && current_args.target.len() > 0
+            && current_args.target.as_ref().is_some_and(|v| v.len() > 0)
         {
             target = current_args.target.clone();
         }
 
-        if target.len() == 0 {
+        if !target.clone().is_some_and(|v| v.len() > 0) {
             target = node
                 .process_args
                 .as_ref()
-                .map_or(vec![], |v| v.default_target.clone().unwrap_or_default());
+                .map_or(None, |v| v.default_target.clone());
         }
+        let Some(target) = target.clone() else {
+            anyhow::bail!("execution target is empty");
+        };
 
         node.actual_args = Some(WorkflowNodeActualArgs {
             formal: formal_args,
@@ -1465,7 +1466,7 @@ impl<'a> WorkflowLogic<'a> {
                     v.nodes.as_ref().is_some_and(|v| {
                         v.iter().any(|v| {
                             if v.node_id == v.node_id {
-                                return v.target.len() == 0;
+                                return !v.target.as_ref().is_some_and(|v| v.len() > 0);
                             }
                             return false;
                         })

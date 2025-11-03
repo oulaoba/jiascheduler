@@ -520,14 +520,14 @@ mod types {
     #[derive(Default, Serialize, Deserialize, Object)]
     pub struct WorkflowNodeArgs {
         pub node_id: String,
-        pub target: Vec<String>,
-        pub args: serde_json::Value,
+        pub target: Option<Vec<String>>,
+        pub args: Option<Vec<WorkflowJobArgs>>,
     }
 
     #[derive(Default, Serialize, Deserialize, Object)]
     pub struct WorkflowProcessArgs {
         pub default_target: Option<Vec<String>>,
-        pub user_variables: Option<serde_json::Value>,
+        pub user_variables: Option<Vec<UserVariables>>,
         pub nodes: Option<Vec<WorkflowNodeArgs>>,
     }
 
@@ -1281,14 +1281,31 @@ impl WorkflowApi {
         let process_args = if let Some(args) = req.process_args {
             Some(logic::workflow::types::WorkflowProcessArgs {
                 default_target: args.default_target,
-                user_variables: args.user_variables,
+                user_variables: args.user_variables.map(|v| {
+                    v.into_iter()
+                        .map(|v| logic::workflow::types::UserVariables {
+                            name: v.name,
+                            val: v.val,
+                            info: v.info,
+                        })
+                        .collect()
+                }),
                 nodes: args.nodes.map_or(None, |v| {
                     Some(
                         v.into_iter()
                             .map(|v| logic::workflow::types::WorkflowNodeArgs {
                                 node_id: v.node_id,
                                 target: v.target,
-                                args: v.args,
+                                args: v.args.map(|v| {
+                                    v.into_iter()
+                                        .map(|v| logic::workflow::types::WorkflowJobArgs {
+                                            name: v.name,
+                                            val: v.val,
+                                            val_type: v.val_type,
+                                            info: v.info,
+                                        })
+                                        .collect()
+                                }),
                             })
                             .collect(),
                     )

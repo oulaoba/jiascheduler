@@ -73,11 +73,9 @@ impl Condition {
             .process_args
             .as_ref()
             .and_then(|v| v.user_variables.as_ref())
-            .and_then(|v| v.as_object())
         {
-            vars.iter().for_each(|(k, v)| {
-                let v = v.clone();
-                global_ctx.insert(k.to_string(), v.to_string());
+            vars.iter().for_each(|v| {
+                global_ctx.insert(v.name.clone(), v.val.clone());
             });
         }
 

@@ -158,7 +158,7 @@ pub struct NodeConfig {
     pub data: serde_json::Value,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct UserVariables {
     pub name: String,
     pub val: String,
@@ -252,15 +252,15 @@ pub struct WorkflowNodeActualArgs {
 #[derive(Default, Serialize, Deserialize, Clone)]
 pub struct WorkflowNodeArgs {
     pub node_id: String,
-    pub target: Vec<String>,
-    pub args: serde_json::Value,
+    pub target: Option<Vec<String>>,
+    pub args: Option<Vec<WorkflowJobArgs>>,
 }
 
 #[derive(Default, Serialize, Deserialize, FromRedisValue, ToRedisArgs, Clone)]
 pub struct WorkflowProcessArgs {
     pub default_target: Option<Vec<String>>,
     pub nodes: Option<Vec<WorkflowNodeArgs>>,
-    pub user_variables: Option<serde_json::Value>,
+    pub user_variables: Option<Vec<UserVariables>>,
 }
 
 #[derive(Default, Serialize, Deserialize, Clone)]
