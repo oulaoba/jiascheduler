@@ -677,6 +677,81 @@ mod types {
         pub version_id: u64,
         pub timer_expr: CustomTimerExpr,
         pub info: Option<String>,
+        pub process_args: Option<WorkflowProcessArgs>,
+    }
+
+    impl From<logic::workflow::types::WorkflowProcessArgs> for WorkflowProcessArgs {
+        fn from(value: logic::workflow::types::WorkflowProcessArgs) -> Self {
+            Self {
+                default_target: value.default_target,
+                user_variables: value.user_variables.map(|v| {
+                    v.into_iter()
+                        .map(|v| UserVariables {
+                            name: v.name,
+                            val: v.val,
+                            info: v.info,
+                        })
+                        .collect()
+                }),
+                nodes: value.nodes.map_or(None, |v| {
+                    Some(
+                        v.into_iter()
+                            .map(|v| WorkflowNodeArgs {
+                                node_id: v.node_id,
+                                target: v.target,
+                                args: v.args.map(|v| {
+                                    v.into_iter()
+                                        .map(|v| WorkflowJobArgs {
+                                            name: v.name,
+                                            val: v.val,
+                                            val_type: v.val_type,
+                                            info: v.info,
+                                        })
+                                        .collect()
+                                }),
+                            })
+                            .collect(),
+                    )
+                }),
+            }
+        }
+    }
+
+    impl Into<logic::workflow::types::WorkflowProcessArgs> for WorkflowProcessArgs {
+        fn into(self) -> logic::workflow::types::WorkflowProcessArgs {
+            logic::workflow::types::WorkflowProcessArgs {
+                default_target: self.default_target,
+                nodes: self.nodes.map_or(None, |v| {
+                    Some(
+                        v.into_iter()
+                            .map(|v| logic::workflow::types::WorkflowNodeArgs {
+                                node_id: v.node_id,
+                                target: v.target,
+                                args: v.args.map(|v| {
+                                    v.into_iter()
+                                        .map(|v| logic::workflow::types::WorkflowJobArgs {
+                                            name: v.name,
+                                            val: v.val,
+                                            val_type: v.val_type,
+                                            info: v.info,
+                                        })
+                                        .collect()
+                                }),
+                            })
+                            .collect(),
+                    )
+                }),
+                user_variables: self.user_variables.map(|v| {
+                    v.into_iter()
+                        .map(|v| logic::workflow::types::UserVariables {
+                            name: v.name,
+                            val: v.val,
+                            info: v.info,
+                        })
+                        .collect()
+                }),
+            }
+        }
     }
 
     #[derive(Object, Serialize, Default, Deserialize)]
@@ -1278,42 +1353,7 @@ impl WorkflowApi {
             return_err!("no permission");
         }
 
-        let process_args = if let Some(args) = req.process_args {
-            Some(logic::workflow::types::WorkflowProcessArgs {
-                default_target: args.default_target,
-                user_variables: args.user_variables.map(|v| {
-                    v.into_iter()
-                        .map(|v| logic::workflow::types::UserVariables {
-                            name: v.name,
-                            val: v.val,
-                            info: v.info,
-                        })
-                        .collect()
-                }),
-                nodes: args.nodes.map_or(None, |v| {
-                    Some(
-                        v.into_iter()
-                            .map(|v| logic::workflow::types::WorkflowNodeArgs {
-                                node_id: v.node_id,
-                                target: v.target,
-                                args: v.args.map(|v| {
-                                    v.into_iter()
-                                        .map(|v| logic::workflow::types::WorkflowJobArgs {
-                                            name: v.name,
-                                            val: v.val,
-                                            val_type: v.val_type,
-                                            info: v.info,
-                                        })
-                                        .collect()
-                                }),
-                            })
-                            .collect(),
-                    )
-                }),
-            })
-        } else {
-            None
-        };
+        let process_args = req.process_args.map(|v| v.into());
 
         let process_id = svc
             .workflow
@@ -1433,6 +1473,9 @@ impl WorkflowApi {
         let next_exec_times =
             WorkflowLogic::check_timer_expr(&req.timer_expr.timezone, &req.timer_expr.expr)?;
 
+        let process_args: Option<logic::workflow::types::WorkflowProcessArgs> =
+            req.process_args.map(|v| v.into());
+
         let ret = svc
             .workflow
             .save_timer(
@@ -1447,6 +1490,11 @@ impl WorkflowApi {
                         .expect("failed encode timer_expr to json")),
                     created_user: req.id.map_or(Set(user_info.username.clone()), |_| NotSet),
                     updated_user: Set(user_info.username.clone()),
+                    process_args: process_args.map_or(NotSet, |v| {
+                        Set(Some(
+                            serde_json::to_value(&v).expect("failed encode process args to json"),
+                        ))
+                    }),
                     ..Default::default()
                 },
             )
