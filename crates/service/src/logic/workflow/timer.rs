@@ -50,6 +50,7 @@ pub struct WorkflowTimerWithTeamModel {
     pub info: String,
     pub created_user: String,
     pub updated_user: String,
+    pub process_args: Option<serde_json::Value>,
     pub created_time: DateTimeLocal,
     pub updated_time: DateTimeLocal,
 }

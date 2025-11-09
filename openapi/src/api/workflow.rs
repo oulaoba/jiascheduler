@@ -787,6 +787,7 @@ mod types {
         pub tags: Option<Vec<ResourceTag>>,
         pub team_id: u64,
         pub team_name: Option<String>,
+        pub process_args: Option<WorkflowProcessArgs>,
         pub created_user: String,
         pub updated_user: String,
         pub created_time: String,
@@ -1589,6 +1590,11 @@ impl WorkflowApi {
                 is_active: v.is_active,
                 startup_error: v.startup_error,
                 updated_user: v.updated_user,
+                process_args: v
+                    .process_args
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .expect("failed parse process args"),
                 updated_time: local_time!(v.updated_time),
                 created_time: local_time!(v.created_time),
             })
