@@ -189,10 +189,12 @@ impl<'a> WorkflowLogic<'a> {
             .await?
             .ok_or(anyhow!("not found workflow {}", workflow_id))?;
 
+        let process_args = timer.process_args.map(serde_json::from_value).transpose()?;
         let handler = move |uuid, mut l: JobScheduler| {
             let ctx_clone = ctx.clone();
             let now = Local::now();
             let username = timer.created_user.clone();
+            let process_args = process_args.clone();
             let process_name = format!(
                 "{}-{}",
                 workflow_record.name.clone(),
@@ -211,7 +213,7 @@ impl<'a> WorkflowLogic<'a> {
                         version_id,
                         Some(timer_id),
                         process_name,
-                        None,
+                        process_args,
                     )
                     .await
                 {
