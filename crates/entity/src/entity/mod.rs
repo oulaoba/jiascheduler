@@ -12,6 +12,7 @@ pub mod job;
 pub mod job_bundle_script;
 pub mod job_exec_history;
 pub mod job_running_status;
+pub mod job_schedule;
 pub mod job_schedule_history;
 pub mod job_supervisor;
 pub mod job_timer;

@@ -9,6 +9,7 @@ use automate::{
 };
 
 use chrono::Local;
+use entity::job_schedule;
 use evalexpr::eval_boolean;
 
 use handlebars::Handlebars;
@@ -889,6 +890,88 @@ impl<'a> JobLogic<'a> {
     }
 
     pub async fn query_schedule(
+        &self,
+        schedule_type: Option<String>,
+        created_user: Option<String>,
+        job_type: String,
+        name: Option<String>,
+        team_id: Option<u64>,
+        updated_time_range: Option<(String, String)>,
+        tag_ids: Option<Vec<u64>>,
+        page: u64,
+        page_size: u64,
+    ) -> Result<(Vec<types::ScheduleJobTeamModel>, u64)> {
+        let mut select = JobSchedule::find()
+            .column_as(team::Column::Id, "team_id")
+            .column_as(team::Column::Name, "team_name")
+            .column_as(job::Column::Id, "job_id")
+            .filter(job_schedule::Column::JobType.eq(job_type))
+            .join_rev(
+                JoinType::LeftJoin,
+                Job::belongs_to(JobSchedule)
+                    .from(job::Column::Eid)
+                    .to(job_schedule::Column::Eid)
+                    .into(),
+            )
+            .join_rev(
+                JoinType::LeftJoin,
+                Team::belongs_to(Job)
+                    .from(team::Column::Id)
+                    .to(job::Column::TeamId)
+                    .into(),
+            )
+            .filter(job_schedule::Column::IsDeleted.eq(false))
+            .apply_if(created_user, |q, v| {
+                q.filter(job_schedule::Column::CreatedUser.eq(v))
+            })
+            .apply_if(schedule_type, |query, v| {
+                query.filter(job_schedule::Column::ScheduleType.eq(v))
+            })
+            .apply_if(name, |query, v| {
+                query.filter(job_schedule::Column::Name.contains(v))
+            })
+            .apply_if(updated_time_range, |query, v| {
+                query.filter(
+                    job_schedule::Column::UpdatedTime
+                        .gt(v.0)
+                        .and(job_schedule::Column::UpdatedTime.lt(v.1)),
+                )
+            })
+            .apply_if(team_id, |q, v| q.filter(job::Column::TeamId.eq(v)));
+
+        match tag_ids {
+            Some(v) if v.len() > 0 => {
+                select = select.filter(
+                    Condition::any().add(
+                        job::Column::Id.in_subquery(
+                            Query::select()
+                                .column(tag_resource::Column::ResourceId)
+                                .and_where(
+                                    tag_resource::Column::ResourceType
+                                        .eq(ResourceType::Job.to_string())
+                                        .and(tag_resource::Column::TagId.is_in(v)),
+                                )
+                                .from(TagResource)
+                                .to_owned(),
+                        ),
+                    ),
+                );
+            }
+            _ => {}
+        };
+
+        let total = select.clone().count(&self.ctx.db).await?;
+
+        let list = select
+            .order_by_desc(job_schedule_history::Column::Id)
+            .into_model()
+            .paginate(&self.ctx.db, page_size)
+            .fetch_page(page)
+            .await?;
+        Ok((list, total))
+    }
+
+    pub async fn query_schedule_history(
         &self,
         schedule_type: Option<String>,
         created_user: Option<String>,

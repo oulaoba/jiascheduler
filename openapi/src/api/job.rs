@@ -1158,6 +1158,111 @@ impl JobApi {
         })
     }
 
+    #[oai(
+        path = "/schedule-history-list",
+        method = "get",
+        transform = "set_middleware"
+    )]
+    pub async fn query_schedule_history(
+        &self,
+        state: Data<&AppState>,
+        _session: &Session,
+        user_info: Data<&logic::types::UserInfo>,
+        Query(search_username): Query<Option<String>>,
+        #[oai(validator(
+            custom = "super::OneOfValidator::new(vec![\"once\",\"timer\",\"flow\",\"daemon\"])"
+        ))]
+        Query(schedule_type): Query<Option<String>>,
+        /// Search based on time range
+        #[oai(validator(max_items = 2, min_items = 2))]
+        Query(updated_time_range): Query<Option<Vec<String>>>,
+
+        #[oai(default)] Query(name): Query<Option<String>>,
+        #[oai(default)] Query(job_type): Query<String>,
+        Query(tag_ids): Query<Option<Vec<u64>>>,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+        #[oai(default = "types::default_page", validator(maximum(value = "10000")))]
+        Query(page): Query<u64>,
+        #[oai(
+            default = "types::default_page_size",
+            validator(maximum(value = "10000"))
+        )]
+        Query(page_size): Query<u64>,
+    ) -> Result<ApiStdResponse<types::QueryScheduleResp>> {
+        let svc = state.service();
+        let updated_time_range = updated_time_range.map(|v| (v[0].clone(), v[1].clone()));
+        let search_username = if state.can_manage_job(&user_info.user_id).await? {
+            search_username
+        } else {
+            team_id.map_or_else(|| Some(user_info.username.clone()), |_| search_username)
+        };
+        let ret = svc
+            .job
+            .query_schedule(
+                schedule_type,
+                search_username,
+                job_type,
+                name,
+                team_id,
+                updated_time_range,
+                tag_ids,
+                page - 1,
+                page_size,
+            )
+            .await?;
+
+        let tag_records = svc
+            .tag
+            .get_all_tag_bind_by_resource_ids(
+                ret.0.iter().map(|v| v.job_id).collect(),
+                logic::types::ResourceType::Job,
+            )
+            .await?;
+
+        let list: Vec<types::ScheduleRecord> = ret
+            .0
+            .into_iter()
+            .map(|v| types::ScheduleRecord {
+                id: v.id,
+                eid: v.eid,
+                created_user: v.created_user,
+                updated_user: v.updated_user,
+                team_id: v.team_id,
+                team_name: v.team_name,
+                created_time: local_time!(v.created_time),
+                updated_time: local_time!(v.updated_time),
+                schedule_type: v.schedule_type,
+                schedule_id: v.schedule_id,
+                name: v.name,
+                job_type: v.job_type,
+                dispatch_result: v.dispatch_result,
+                action: v.action,
+                actual_args: v.actual_args,
+                tags: Some(
+                    tag_records
+                        .iter()
+                        .filter_map(|tb| {
+                            if tb.resource_id == v.job_id {
+                                Some(types::JobTag {
+                                    id: tb.tag_id,
+                                    tag_name: tb.tag_name.clone(),
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .collect(),
+                ),
+                dispatch_data: v.dispatch_data,
+                snapshot_data: v.snapshot_data,
+            })
+            .collect();
+        return_ok!(types::QueryScheduleResp {
+            total: ret.1,
+            list: list,
+        })
+    }
+
     #[oai(path = "/schedule-list", method = "get", transform = "set_middleware")]
     pub async fn query_schedule(
         &self,

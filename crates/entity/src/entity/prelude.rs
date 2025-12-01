@@ -11,6 +11,7 @@ pub use super::job_bundle_script::Entity as JobBundleScript;
 pub use super::job_exec_history::Entity as JobExecHistory;
 
 pub use super::job_running_status::Entity as JobRunningStatus;
+pub use super::job_schedule::Entity as JobSchedule;
 pub use super::job_schedule_history::Entity as JobScheduleHistory;
 pub use super::job_supervisor::Entity as JobSupervisor;
 pub use super::job_timer::Entity as JobTimer;
