@@ -662,6 +662,152 @@ impl<'a> JobLogic<'a> {
         Ok(ret.last_insert_id)
     }
 
+    pub async fn save_schedule(
+        &self,
+        id: u64,
+        instance_ids: Vec<String>,
+        eid: String,
+
+        schedule_name: String,
+
+        timer_expr: Option<String>,
+        restart_interval: Option<Duration>,
+        actual_args: Option<serde_json::Value>,
+        created_user: String,
+    ) -> Result<u64> {
+        let schedule_id = IdGenerator::get_schedule_uid();
+        let endpoints = Instance::find()
+            .filter(instance::Column::InstanceId.is_in(instance_ids))
+            .all(&self.ctx.db)
+            .await?;
+        if endpoints.len() == 0 {
+            anyhow::bail!("cannot found valid instance");
+        }
+
+        let job_record = Job::find()
+            .filter(job::Column::Eid.eq(eid.clone()))
+            .filter(job::Column::IsDeleted.eq(false))
+            .one(&self.ctx.db)
+            .await?
+            .ok_or(anyhow!("cannot found job {}", eid))?;
+
+        let executor_record = Executor::find()
+            .filter(executor::Column::Id.eq(job_record.executor_id))
+            .one(&self.ctx.db)
+            .await?
+            .ok_or(anyhow!(
+                "cannot found executor {}",
+                job_record.executor_id.clone()
+            ))?;
+
+        let mut upload_file: Option<UploadFile> = None;
+
+        if job_record.upload_file != "" {
+            let data = fs::read(job_record.upload_file.clone()).await?;
+            upload_file = Some(UploadFile {
+                filename: file_name!(job_record.upload_file.clone()),
+                data: Some(data),
+            });
+        }
+
+        let (bundle_script, job_type): (Option<Vec<BundleScript>>, String) =
+            match job_record.clone().bundle_script {
+                Some(v) => {
+                    let list: Vec<BundleScriptRecord> = serde_json::from_value(v)?;
+                    let executor_id = list.iter().map(|v| v.executor_id).collect::<Vec<u64>>();
+                    let executor_list = ExecutorLogic::new(self.ctx)
+                        .get_all_by_executor_id(executor_id)
+                        .await?;
+
+                    let mut ret = vec![];
+                    for v in list {
+                        let e = executor_list
+                            .get_by_id(v.executor_id)
+                            .ok_or(anyhow!("cannot found executor {}", v.executor_id))?;
+                        let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&e);
+
+                        ret.push(BundleScript {
+                            eid: v.eid.clone(),
+                            cmd_name,
+                            code: v.code.clone(),
+                            args: cmd_args,
+                        })
+                    }
+
+                    (Some(ret), "bundle".to_string())
+                }
+                None => (None, "default".to_string()),
+            };
+
+        let job_actual_args = Self::get_job_actual_args(&job_record, actual_args)?;
+        let (cmd_name, cmd_args) = ExecutorLogic::get_cmd_args(&executor_record);
+
+        let dispatch_params = automate::DispatchJobParams {
+            base_job: automate::BaseJob {
+                eid: job_record.eid.clone(),
+                cmd_name,
+                bundle_script,
+                code: Self::get_job_code(job_record.code.clone(), job_actual_args.clone())?,
+                args: cmd_args,
+                upload_file: upload_file.clone(),
+                work_dir: Some(job_record.work_dir.clone()).filter(|v| !v.is_empty()),
+                work_user: Some(job_record.work_user.clone()).filter(|v| !v.is_empty()),
+                timeout: job_record.timeout,
+                max_retry: Some(job_record.max_retry),
+                max_parallel: Some(job_record.max_parallel.into()),
+                read_code_from_stdin: false,
+                is_workflow: false,
+            },
+            run_id: IdGenerator::get_run_id(),
+            instance_id: None,
+            fields: None,
+            restart_interval,
+            created_user: created_user.clone(),
+            schedule_id: schedule_id.clone(),
+            timer_expr: timer_expr.clone(),
+            is_sync: false,
+            action: JobAction::Todo,
+        };
+
+        let mut dispatch_data = DispatchData {
+            target: Vec::new(),
+            params: dispatch_params.clone(),
+        };
+
+        endpoints.into_iter().for_each(|v| {
+            dispatch_data.target.push(DispatchTarget {
+                ip: v.ip.clone(),
+                mac_addr: v.mac_addr.clone(),
+                namespace: v.namespace.clone(),
+                instance_id: v.instance_id.clone(),
+            });
+        });
+
+        dispatch_data
+            .params
+            .base_job
+            .upload_file
+            .iter_mut()
+            .for_each(|v| v.data = None);
+
+        let ret = JobSchedule::update(entity::job_schedule::ActiveModel {
+            id: Set(id),
+            name: Set(schedule_name),
+            eid: Set(eid.clone()),
+            job_type: Set(job_type),
+            dispatch_data: Set(Some(serde_json::to_value(&dispatch_data)?)),
+            snapshot_data: Set(Some(serde_json::to_value(job_record)?)),
+            actual_args: Set(Some(serde_json::to_value(job_actual_args)?)),
+            created_user: Set(created_user.clone()),
+            updated_user: Set(created_user.clone()),
+            ..Default::default()
+        })
+        .exec(&self.ctx.db)
+        .await?;
+
+        Ok(ret.id)
+    }
+
     pub async fn dispatch_runnable_job_to_endpoint(
         &self,
         bind_namespace: String,

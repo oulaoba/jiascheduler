@@ -294,6 +294,23 @@ pub mod types {
     }
 
     #[derive(Object, Serialize, Default)]
+    #[oai(skip_serializing_if_is_none)]
+    pub struct SaveScheduleReq {
+        pub schedule_id: String,
+        pub schedule_name: String,
+        pub endpoints: Vec<Endpoint>,
+        pub eid: String,
+        pub args: Option<serde_json::Value>,
+        pub timer_expr: Option<TimerExpr>,
+        pub restart_interval: Option<u64>,
+    }
+
+    #[derive(Object, Serialize, Default)]
+    pub struct SaveScheduleResp {
+        pub result: u64,
+    }
+
+    #[derive(Object, Serialize, Default)]
     pub struct ScheduleRecord {
         pub id: u64,
         pub schedule_id: String,
@@ -1198,7 +1215,7 @@ impl JobApi {
         };
         let ret = svc
             .job
-            .query_schedule(
+            .query_schedule_history(
                 schedule_type,
                 search_username,
                 job_type,
@@ -1261,6 +1278,44 @@ impl JobApi {
             total: ret.1,
             list: list,
         })
+    }
+
+    #[oai(path = "/save-schedule", method = "post", transform = "set_middleware")]
+    pub async fn save_schedule(
+        &self,
+        state: Data<&AppState>,
+        _session: &Session,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+        user_info: Data<&logic::types::UserInfo>,
+        Json(req): Json<types::SaveScheduleReq>,
+    ) -> Result<ApiStdResponse<types::SaveJobResp>> {
+        let svc = state.service();
+
+        let schedule_record =
+            svc.job
+                .get_schedule(&req.schedule_id)
+                .await?
+                .ok_or(anyhow::anyhow!(
+                    "cannot found job schedule by schedule_id: {}",
+                    req.schedule_id
+                ))?;
+
+        if !svc
+            .job
+            .can_dispatch_job(
+                &user_info,
+                team_id,
+                Some(&schedule_record.created_user),
+                &schedule_record.eid,
+            )
+            .await?
+        {
+            return_err!(
+                "Rescheduling is not allowed unless you are the task's original scheduler."
+            );
+        }
+
+        todo!();
     }
 
     #[oai(path = "/schedule-list", method = "get", transform = "set_middleware")]

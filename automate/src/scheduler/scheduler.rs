@@ -1020,6 +1020,7 @@ impl
             JobAction::StopSupervising => Scheduler::stop_supervising(dispatch_params, react).await,
             JobAction::Exec => Scheduler::exec(dispatch_params, react).await,
             JobAction::Kill => Scheduler::kill(dispatch_params, react).await,
+            _ => anyhow::bail!("invalid job action {}", dispatch_params.action),
         }
     }
 
