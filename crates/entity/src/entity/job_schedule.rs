@@ -14,9 +14,11 @@ pub struct Model {
     pub schedule_type: String,
     pub created_user: String,
     pub updated_user: String,
-    pub dispatch_data: Option<Json>,
     pub snapshot_data: Option<Json>,
     pub actual_args: Option<Json>,
+    pub instance_ids: Option<Json>,
+    pub timer_expr: String,
+    pub restart_interval: u16,
     pub created_time: DateTimeLocal,
     pub updated_time: DateTimeLocal,
     #[serde(default)]
