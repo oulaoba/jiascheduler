@@ -420,7 +420,7 @@ impl<'a> JobLogic<'a> {
         self.check_schedule_type(action.clone(), schedule_type.clone())?;
         let schedule_id = IdGenerator::get_schedule_uid();
         let endpoints = Instance::find()
-            .filter(instance::Column::InstanceId.is_in(instance_ids))
+            .filter(instance::Column::InstanceId.is_in(&instance_ids))
             .all(&self.ctx.db)
             .await?;
         if endpoints.len() == 0 {
@@ -637,7 +637,24 @@ impl<'a> JobLogic<'a> {
             .iter_mut()
             .for_each(|v| v.data = None);
 
+        let schedule_result = JobSchedule::insert(entity::job_schedule::ActiveModel {
+            name: Set(schedule_name.clone()),
+            eid: Set(eid.clone()),
+            job_type: Set(job_record.job_type.to_string()),
+            snapshot_data: Set(Some(serde_json::to_value(&job_record)?)),
+            actual_args: Set(Some(serde_json::to_value(&job_actual_args)?)),
+            created_user: Set(created_user.clone()),
+            updated_user: Set(created_user.clone()),
+            instance_ids: Set(Some(serde_json::to_value(&instance_ids)?)),
+            timer_expr: timer_expr.map_or(NotSet, |v| Set(v)),
+            restart_interval: restart_interval.map_or(NotSet, |v| Set(v.as_secs() as u16)),
+            ..Default::default()
+        })
+        .exec(&self.ctx.db)
+        .await?;
+
         let ret = JobScheduleHistory::insert(entity::job_schedule_history::ActiveModel {
+            parent_id: Set(schedule_result.last_insert_id),
             schedule_id: Set(schedule_id.clone()),
             name: Set(schedule_name),
             eid: Set(eid.clone()),
@@ -647,7 +664,7 @@ impl<'a> JobLogic<'a> {
             action: Set(action.to_string()),
             dispatch_data: Set(Some(serde_json::to_value(&dispatch_data)?)),
             snapshot_data: Set(Some(serde_json::to_value(job_record)?)),
-            actual_args: Set(Some(serde_json::to_value(job_actual_args)?)),
+            actual_args: Set(Some(serde_json::to_value(&job_actual_args)?)),
             created_user: Set(created_user.clone()),
             updated_user: Set(created_user.clone()),
             ..Default::default()
