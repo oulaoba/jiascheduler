@@ -107,14 +107,20 @@ CREATE TABLE `workflow_process_edge` (
     KEY `idx_target_node_id` (`target_node_id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '任务进程中连接任务的边线';
 
-ALTER TABLE job_schedule_history
-ADD COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';
+ALTER TABLE
+    job_schedule_history
+ADD
+    COLUMN `actual_args` json DEFAULT NULL COMMENT 'arguments';
 
-ALTER TABLE job_timer
-ADD COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
+ALTER TABLE
+    job_timer
+ADD
+    COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
 
-ALTER TABLE job_supervisor
-ADD COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
+ALTER TABLE
+    job_supervisor
+ADD
+    COLUMN `job_args` json DEFAULT NULL COMMENT '作业参数';
 
 CREATE TABLE `workflow_timer` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
@@ -139,3 +145,31 @@ CREATE TABLE `workflow_timer` (
     `deleted_by` varchar(50) NOT NULL DEFAULT '' COMMENT 'deleted by',
     PRIMARY KEY (`id`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = 'workflow timer';
+
+CREATE TABLE `job_schedule` (
+    `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'primary id',
+    `name` varchar(100) NOT NULL DEFAULT '' COMMENT 'schedule name',
+    `job_type` varchar(50) NOT NULL DEFAULT 'default' COMMENT 'job type: default, bundle',
+    `eid` varchar(100) NOT NULL DEFAULT '' COMMENT '执行id',
+    `schedule_type` varchar(20) NOT NULL DEFAULT '' COMMENT '调度类型 once flow timer daemon',
+    `snapshot_data` json DEFAULT NULL COMMENT '快照数据',
+    `instance_ids` JSON DEFAULT NULL COMMENT 'bind instance ids',
+    `timer_expr` VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'timer job cron expr',
+    `restart_interval` INT NOT NULL DEFAULT 3 COMMENT 'daemon job restart interval',
+    `action` varchar(20) NOT NULL DEFAULT '' COMMENT 'action: exec kill start_timer stop_timer...',
+    `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT '创建人',
+    `updated_user` varchar(50) NOT NULL DEFAULT '' COMMENT '修改人',
+    `created_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+    `is_deleted` tinyint(1) NOT NULL DEFAULT '0',
+    `deleted_at` timestamp NULL DEFAULT NULL,
+    `deleted_by` varchar(50) NOT NULL DEFAULT '' COMMENT '删除人',
+    `actual_args` json DEFAULT NULL COMMENT 'arguments',
+    PRIMARY KEY (`id`),
+    KEY `idx_eid` (`eid`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '作业调度历史';
+
+ALTER TABLE
+    job_schedule_history
+ADD
+    parent_id BIGINT UNSIGNED DEFAULT 0 NOT NULL COMMENT 'parent id';

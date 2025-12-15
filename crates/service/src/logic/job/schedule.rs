@@ -646,8 +646,10 @@ impl<'a> JobLogic<'a> {
             created_user: Set(created_user.clone()),
             updated_user: Set(created_user.clone()),
             instance_ids: Set(Some(serde_json::to_value(&instance_ids)?)),
-            timer_expr: timer_expr.map_or(NotSet, |v| Set(v)),
-            restart_interval: restart_interval.map_or(NotSet, |v| Set(v.as_secs() as u16)),
+            schedule_type: Set(schedule_type.to_string()),
+            action: Set(action.to_string()),
+            timer_expr: timer_expr.map_or(NotSet, Set),
+            restart_interval: restart_interval.map_or(NotSet, |v| Set(v.as_secs())),
             ..Default::default()
         })
         .exec(&self.ctx.db)
@@ -686,7 +688,6 @@ impl<'a> JobLogic<'a> {
         eid: String,
         schedule_name: String,
         timer_expr: Option<String>,
-        restart_interval: Option<u16>,
         actual_args: Option<serde_json::Value>,
         created_user: String,
     ) -> Result<u64> {
@@ -721,8 +722,6 @@ impl<'a> JobLogic<'a> {
             created_user: Set(created_user.clone()),
             updated_user: Set(created_user.clone()),
             instance_ids: Set(Some(serde_json::to_value(instance_ids)?)),
-            timer_expr: timer_expr.map_or(NotSet, |v| Set(v)),
-            restart_interval: restart_interval.map_or(NotSet, |v| Set(v)),
             ..Default::default()
         })
         .exec(&self.ctx.db)
@@ -1032,7 +1031,7 @@ impl<'a> JobLogic<'a> {
         let total = select.clone().count(&self.ctx.db).await?;
 
         let list = select
-            .order_by_desc(job_schedule_history::Column::Id)
+            .order_by_desc(job_schedule::Column::Id)
             .into_model()
             .paginate(&self.ctx.db, page_size)
             .fetch_page(page)
@@ -1051,7 +1050,7 @@ impl<'a> JobLogic<'a> {
         tag_ids: Option<Vec<u64>>,
         page: u64,
         page_size: u64,
-    ) -> Result<(Vec<types::ScheduleJobTeamModel>, u64)> {
+    ) -> Result<(Vec<types::ScheduleHistoryJobTeamModel>, u64)> {
         let mut select = JobScheduleHistory::find()
             .column_as(team::Column::Id, "team_id")
             .column_as(team::Column::Name, "team_name")

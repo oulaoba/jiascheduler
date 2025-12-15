@@ -19,5 +19,9 @@ ALTER TABLE
 ALTER TABLE
     job_supervisor DROP COLUMN `job_args`;
 
-
 DROP TABLE IF EXISTS `workflow_timer`;
+
+DROP TABLE IF EXISTS `job_schedule`;
+
+ALTER TABLE
+    job_schedule_history DROP COLUMN `parent_id`;

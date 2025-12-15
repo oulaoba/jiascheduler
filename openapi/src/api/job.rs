@@ -311,7 +311,7 @@ pub mod types {
     }
 
     #[derive(Object, Serialize, Default)]
-    pub struct ScheduleRecord {
+    pub struct ScheduleHistoryRecord {
         pub id: u64,
         pub schedule_id: String,
         pub team_id: Option<u64>,
@@ -336,6 +336,31 @@ pub mod types {
     pub struct QueryScheduleResp {
         pub total: u64,
         pub list: Vec<ScheduleRecord>,
+    }
+
+    #[derive(Object, Serialize, Default)]
+    pub struct ScheduleRecord {
+        pub id: u64,
+        pub team_id: Option<u64>,
+        pub team_name: Option<String>,
+        pub name: String,
+        pub eid: String,
+        pub job_type: String,
+        pub action: String,
+        pub dispatch_result: Option<Value>,
+        pub schedule_type: String,
+        pub snapshot_data: Option<Value>,
+        pub tags: Option<Vec<JobTag>>,
+        pub created_user: String,
+        pub updated_user: String,
+        pub created_time: String,
+        pub updated_time: String,
+    }
+
+    #[derive(Object, Serialize, Default)]
+    pub struct QueryScheduleHistoryResp {
+        pub total: u64,
+        pub list: Vec<ScheduleHistoryRecord>,
     }
 
     #[derive(Object, Serialize, Default)]
@@ -1205,7 +1230,7 @@ impl JobApi {
             validator(maximum(value = "10000"))
         )]
         Query(page_size): Query<u64>,
-    ) -> Result<ApiStdResponse<types::QueryScheduleResp>> {
+    ) -> Result<ApiStdResponse<types::QueryScheduleHistoryResp>> {
         let svc = state.service();
         let updated_time_range = updated_time_range.map(|v| (v[0].clone(), v[1].clone()));
         let search_username = if state.can_manage_job(&user_info.user_id).await? {
@@ -1236,10 +1261,10 @@ impl JobApi {
             )
             .await?;
 
-        let list: Vec<types::ScheduleRecord> = ret
+        let list: Vec<types::ScheduleHistoryRecord> = ret
             .0
             .into_iter()
-            .map(|v| types::ScheduleRecord {
+            .map(|v| types::ScheduleHistoryRecord {
                 id: v.id,
                 eid: v.eid,
                 created_user: v.created_user,
@@ -1274,7 +1299,7 @@ impl JobApi {
                 snapshot_data: v.snapshot_data,
             })
             .collect();
-        return_ok!(types::QueryScheduleResp {
+        return_ok!(types::QueryScheduleHistoryResp {
             total: ret.1,
             list: list,
         })
@@ -1388,12 +1413,10 @@ impl JobApi {
                 created_time: local_time!(v.created_time),
                 updated_time: local_time!(v.updated_time),
                 schedule_type: v.schedule_type,
-                schedule_id: v.schedule_id,
+                action: v.action,
                 name: v.name,
                 job_type: v.job_type,
                 dispatch_result: v.dispatch_result,
-                action: v.action,
-                actual_args: v.actual_args,
                 tags: Some(
                     tag_records
                         .iter()
@@ -1409,7 +1432,6 @@ impl JobApi {
                         })
                         .collect(),
                 ),
-                dispatch_data: v.dispatch_data,
                 snapshot_data: v.snapshot_data,
             })
             .collect();

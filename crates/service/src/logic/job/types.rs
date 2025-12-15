@@ -264,7 +264,7 @@ pub struct TeamMemberModel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult)]
-pub struct ScheduleJobTeamModel {
+pub struct ScheduleHistoryJobTeamModel {
     pub id: u64,
     pub job_id: u64,
     pub schedule_id: String,
@@ -277,6 +277,26 @@ pub struct ScheduleJobTeamModel {
     pub schedule_type: String,
     pub action: String,
     pub dispatch_data: Option<serde_json::Value>,
+    pub snapshot_data: Option<serde_json::Value>,
+    pub actual_args: Option<serde_json::Value>,
+    pub created_user: String,
+    pub updated_user: String,
+    pub created_time: DateTimeLocal,
+    pub updated_time: DateTimeLocal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult)]
+pub struct ScheduleJobTeamModel {
+    pub id: u64,
+    pub job_id: u64,
+    pub name: String,
+    pub job_type: String,
+    pub eid: String,
+    pub team_id: Option<u64>,
+    pub team_name: Option<String>,
+    pub dispatch_result: Option<serde_json::Value>,
+    pub schedule_type: String,
+    pub action: String,
     pub snapshot_data: Option<serde_json::Value>,
     pub actual_args: Option<serde_json::Value>,
     pub created_user: String,
