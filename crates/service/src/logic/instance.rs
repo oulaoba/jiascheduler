@@ -364,7 +364,8 @@ impl<'a> InstanceLogic<'a> {
         user_id: Option<String>,
         instance_group_id: Option<u64>,
         status: Option<u8>,
-        ip: Option<String>,
+        ip: Option<Vec<String>>,
+        instance_ids: Option<Vec<String>>,
         tag_id: Option<Vec<u64>>,
         page: u64,
         page_size: u64,
@@ -403,8 +404,9 @@ impl<'a> InstanceLogic<'a> {
                     .to(instance::Column::InstanceGroupId)
                     .into(),
             )
-            .apply_if(ip, |query, v| {
-                query.filter(instance::Column::Ip.contains(v))
+            .apply_if(ip, |query, v| query.filter(instance::Column::Ip.is_in(v)))
+            .apply_if(instance_ids, |query, v| {
+                query.filter(instance::Column::InstanceId.is_in(v))
             })
             .apply_if(instance_group_id, |query, v| {
                 query.filter(instance::Column::InstanceGroupId.eq(v))
@@ -431,10 +433,10 @@ impl<'a> InstanceLogic<'a> {
 
     pub async fn query_admin_server(
         &self,
-        instance_id: Option<String>,
+        instance_id: Option<Vec<String>>,
         instance_group_id: Option<u64>,
         status: Option<u8>,
-        ip: Option<String>,
+        ip: Option<Vec<String>>,
         page: u64,
         page_size: u64,
     ) -> Result<(Vec<types::UserServer>, u64)> {
@@ -462,11 +464,9 @@ impl<'a> InstanceLogic<'a> {
                 query.filter(instance::Column::Status.eq(v))
             })
             .apply_if(instance_id, |query, v| {
-                query.filter(instance::Column::InstanceId.eq(v))
+                query.filter(instance::Column::InstanceId.is_in(v))
             })
-            .apply_if(ip, |query, v| {
-                query.filter(instance::Column::Ip.contains(v))
-            })
+            .apply_if(ip, |query, v| query.filter(instance::Column::Ip.is_in(v)))
             .apply_if(instance_group_id, |query, v| {
                 query.filter(instance_group::Column::Id.eq(v))
             });
@@ -615,10 +615,10 @@ impl<'a> InstanceLogic<'a> {
     pub async fn query_user_server(
         &self,
         user_id: String,
-        instance_id: Option<String>,
+        instance_id: Option<Vec<String>>,
         instance_group_id: Option<u64>,
         status: Option<u8>,
-        ip: Option<String>,
+        ip: Option<Vec<String>>,
         page: u64,
         page_size: u64,
     ) -> Result<(Vec<types::UserServer>, u64)> {
@@ -669,7 +669,7 @@ impl<'a> InstanceLogic<'a> {
                 query.filter(instance::Column::Status.eq(v))
             })
             .apply_if(instance_id.clone(), |query, v| {
-                query.filter(instance::Column::InstanceId.eq(v))
+                query.filter(instance::Column::InstanceId.is_in(v))
             })
             .apply_if(instance_group_id, |query, v| {
                 query.filter(instance_group::Column::Id.eq(v))
@@ -677,64 +677,59 @@ impl<'a> InstanceLogic<'a> {
             .as_query()
             .to_owned();
 
-        let model = model.union(
-            UnionType::Distinct,
-            UserServer::find()
-                .select_only()
-                .column(instance::Column::Id)
-                .column(instance::Column::Ip)
-                .column(instance::Column::Namespace)
-                .column(instance::Column::Info)
-                .column(instance::Column::MacAddr)
-                .column(instance::Column::InstanceId)
-                .column(instance::Column::InstanceGroupId)
-                .column_as(instance_group::Column::Name, "instance_group_name")
-                .column(instance::Column::Status)
-                .column(instance::Column::CreatedTime)
-                .column(instance::Column::UpdatedTime)
-                .join_rev(
-                    JoinType::LeftJoin,
-                    Instance::belongs_to(UserServer)
-                        .condition_type(ConditionType::Any)
-                        .on_condition(|a, b| {
-                            Expr::col((b.clone(), instance::Column::InstanceGroupId))
-                                .equals((a.clone(), user_server::Column::InstanceGroupId))
-                                .and(Expr::col((b, instance::Column::InstanceGroupId)).gt(0))
-                                .into_condition()
-                        })
-                        .from(instance::Column::InstanceId)
-                        .to(user_server::Column::InstanceId)
-                        .into(),
-                )
-                .join_rev(
-                    JoinType::LeftJoin,
-                    InstanceGroup::belongs_to(Instance)
-                        .from(instance_group::Column::Id)
-                        .to(instance::Column::InstanceGroupId)
-                        .into(),
-                )
-                .filter(user_server::Column::UserId.eq(user_id.clone()))
-                .apply_if(status, |query, v| {
-                    query.filter(instance::Column::Status.eq(v))
-                })
-                .apply_if(instance_id, |query, v| {
-                    query.filter(instance::Column::InstanceId.eq(v))
-                })
-                .as_query()
-                .clone(),
-        );
-
-        let model = if let Some(ip) = ip {
-            model.and_where(instance::Column::Ip.contains(ip))
-        } else {
-            model
-        };
-
-        let model = if let Some(instance_group_id) = instance_group_id {
-            model.and_where(instance::Column::InstanceGroupId.eq(instance_group_id))
-        } else {
-            model
-        };
+        let model = model
+            .union(
+                UnionType::Distinct,
+                UserServer::find()
+                    .select_only()
+                    .column(instance::Column::Id)
+                    .column(instance::Column::Ip)
+                    .column(instance::Column::Namespace)
+                    .column(instance::Column::Info)
+                    .column(instance::Column::MacAddr)
+                    .column(instance::Column::InstanceId)
+                    .column(instance::Column::InstanceGroupId)
+                    .column_as(instance_group::Column::Name, "instance_group_name")
+                    .column(instance::Column::Status)
+                    .column(instance::Column::CreatedTime)
+                    .column(instance::Column::UpdatedTime)
+                    .join_rev(
+                        JoinType::LeftJoin,
+                        Instance::belongs_to(UserServer)
+                            .condition_type(ConditionType::Any)
+                            .on_condition(|a, b| {
+                                Expr::col((b.clone(), instance::Column::InstanceGroupId))
+                                    .equals((a.clone(), user_server::Column::InstanceGroupId))
+                                    .and(Expr::col((b, instance::Column::InstanceGroupId)).gt(0))
+                                    .into_condition()
+                            })
+                            .from(instance::Column::InstanceId)
+                            .to(user_server::Column::InstanceId)
+                            .into(),
+                    )
+                    .join_rev(
+                        JoinType::LeftJoin,
+                        InstanceGroup::belongs_to(Instance)
+                            .from(instance_group::Column::Id)
+                            .to(instance::Column::InstanceGroupId)
+                            .into(),
+                    )
+                    .filter(user_server::Column::UserId.eq(user_id.clone()))
+                    .apply_if(status, |query, v| {
+                        query.filter(instance::Column::Status.eq(v))
+                    })
+                    .apply_if(instance_id, |query, v| {
+                        query.filter(instance::Column::InstanceId.is_in(v))
+                    })
+                    .as_query()
+                    .clone(),
+            )
+            .apply_if(ip, |query, v| {
+                query.and_where(instance::Column::Ip.is_in(v));
+            })
+            .apply_if(instance_group_id, |query, v| {
+                query.and_where(instance::Column::InstanceGroupId.eq(v));
+            });
 
         let (sql, vals) = model
             .clone()

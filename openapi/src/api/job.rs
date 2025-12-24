@@ -347,10 +347,12 @@ pub mod types {
         pub eid: String,
         pub job_type: String,
         pub action: String,
+        pub instance_ids: Vec<String>,
         pub dispatch_result: Option<Value>,
         pub schedule_type: String,
         pub snapshot_data: Option<Value>,
         pub tags: Option<Vec<JobTag>>,
+        pub actual_args: Option<serde_json::Value>,
         pub created_user: String,
         pub updated_user: String,
         pub created_time: String,
@@ -1417,6 +1419,9 @@ impl JobApi {
                 name: v.name,
                 job_type: v.job_type,
                 dispatch_result: v.dispatch_result,
+                instance_ids: v
+                    .instance_ids
+                    .map_or(vec![], |v| serde_json::from_value(v).unwrap_or(vec![])),
                 tags: Some(
                     tag_records
                         .iter()
@@ -1432,6 +1437,7 @@ impl JobApi {
                         })
                         .collect(),
                 ),
+                actual_args: v.actual_args,
                 snapshot_data: v.snapshot_data,
             })
             .collect();

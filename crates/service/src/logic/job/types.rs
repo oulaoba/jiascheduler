@@ -294,6 +294,7 @@ pub struct ScheduleJobTeamModel {
     pub eid: String,
     pub team_id: Option<u64>,
     pub team_name: Option<String>,
+    pub instance_ids: Option<serde_json::Value>,
     pub dispatch_result: Option<serde_json::Value>,
     pub schedule_type: String,
     pub action: String,

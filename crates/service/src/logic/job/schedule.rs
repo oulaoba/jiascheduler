@@ -722,6 +722,7 @@ impl<'a> JobLogic<'a> {
             created_user: Set(created_user.clone()),
             updated_user: Set(created_user.clone()),
             instance_ids: Set(Some(serde_json::to_value(instance_ids)?)),
+            timer_expr: timer_expr.map_or(NotSet, Set),
             ..Default::default()
         })
         .exec(&self.ctx.db)
