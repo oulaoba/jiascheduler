@@ -296,8 +296,8 @@ pub mod types {
     #[derive(Object, Serialize, Default)]
     #[oai(skip_serializing_if_is_none)]
     pub struct SaveScheduleReq {
-        pub schedule_id: String,
-        pub schedule_name: String,
+        pub id: u64,
+        pub name: String,
         pub endpoints: Vec<Endpoint>,
         pub eid: String,
         pub args: Option<serde_json::Value>,
@@ -1025,14 +1025,14 @@ impl JobApi {
         let svc = state.service();
         let action: JobAction = req.action.as_str().try_into()?;
 
-        let schedule_record =
-            svc.job
-                .get_schedule(&req.schedule_id)
-                .await?
-                .ok_or(anyhow::anyhow!(
-                    "cannot found job schedule by schedule_id: {}",
-                    req.schedule_id
-                ))?;
+        let schedule_record = svc
+            .job
+            .get_schedule_history(&req.schedule_id)
+            .await?
+            .ok_or(anyhow::anyhow!(
+                "cannot found job schedule by schedule_id: {}",
+                req.schedule_id
+            ))?;
 
         if !svc
             .job
@@ -1318,14 +1318,10 @@ impl JobApi {
     ) -> Result<ApiStdResponse<types::SaveJobResp>> {
         let svc = state.service();
 
-        let schedule_record =
-            svc.job
-                .get_schedule(&req.schedule_id)
-                .await?
-                .ok_or(anyhow::anyhow!(
-                    "cannot found job schedule by schedule_id: {}",
-                    req.schedule_id
-                ))?;
+        let schedule_record = svc.job.get_schedule(req.id).await?.ok_or(anyhow::anyhow!(
+            "cannot found job schedule by schedule_id: {}",
+            req.id
+        ))?;
 
         if !svc
             .job
@@ -1342,7 +1338,23 @@ impl JobApi {
             );
         }
 
-        todo!();
+        let ret = svc
+            .job
+            .save_schedule(
+                req.id,
+                req.endpoints
+                    .iter()
+                    .map(|v| v.instance_id.clone())
+                    .collect(),
+                req.eid,
+                req.name,
+                req.timer_expr.map_or(None, |expr| Some(expr.into())),
+                req.args,
+                user_info.username.clone(),
+            )
+            .await?;
+
+        return_ok!(types::SaveJobResp { result: ret })
     }
 
     #[oai(path = "/schedule-list", method = "get", transform = "set_middleware")]

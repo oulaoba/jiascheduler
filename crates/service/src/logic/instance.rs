@@ -20,6 +20,7 @@ use sea_query::MysqlQueryBuilder;
 use sea_query::UnionType;
 use sea_query::{ConditionType, Expr, IntoCondition, OnConflict};
 use tracing::warn;
+use utils::non_empty;
 
 use crate::IdGenerator;
 use crate::entity::instance_role;
@@ -404,8 +405,14 @@ impl<'a> InstanceLogic<'a> {
                     .to(instance::Column::InstanceGroupId)
                     .into(),
             )
-            .apply_if(ip, |query, v| query.filter(instance::Column::Ip.is_in(v)))
-            .apply_if(instance_ids, |query, v| {
+            .apply_if(non_empty!(ip), |query, v| {
+                if v.len() == 1 {
+                    query.filter(instance::Column::Ip.like(v[0].clone()))
+                } else {
+                    query.filter(instance::Column::Ip.is_in(v))
+                }
+            })
+            .apply_if(non_empty!(instance_ids), |query, v| {
                 query.filter(instance::Column::InstanceId.is_in(v))
             })
             .apply_if(instance_group_id, |query, v| {
@@ -418,7 +425,9 @@ impl<'a> InstanceLogic<'a> {
                 query.filter(tag::Column::CreatedUser.eq(v))
             })
             .filter(instance::Column::Id.gt(0))
-            .apply_if(tag_id, |query, v| query.filter(tag::Column::Id.is_in(v)));
+            .apply_if(non_empty!(tag_id), |query, v| {
+                query.filter(tag::Column::Id.is_in(v))
+            });
 
         let total = model.clone().count(&self.ctx.db).await?;
 
@@ -463,10 +472,16 @@ impl<'a> InstanceLogic<'a> {
             .apply_if(status, |query, v| {
                 query.filter(instance::Column::Status.eq(v))
             })
-            .apply_if(instance_id, |query, v| {
+            .apply_if(non_empty!(instance_id), |query, v| {
                 query.filter(instance::Column::InstanceId.is_in(v))
             })
-            .apply_if(ip, |query, v| query.filter(instance::Column::Ip.is_in(v)))
+            .apply_if(non_empty!(ip), |query, v| {
+                if v.len() == 1 {
+                    query.filter(instance::Column::Ip.like(v[0].clone()))
+                } else {
+                    query.filter(instance::Column::Ip.is_in(v))
+                }
+            })
             .apply_if(instance_group_id, |query, v| {
                 query.filter(instance_group::Column::Id.eq(v))
             });
@@ -668,7 +683,7 @@ impl<'a> InstanceLogic<'a> {
             .apply_if(status, |query, v| {
                 query.filter(instance::Column::Status.eq(v))
             })
-            .apply_if(instance_id.clone(), |query, v| {
+            .apply_if(non_empty!(instance_id), |query, v| {
                 query.filter(instance::Column::InstanceId.is_in(v))
             })
             .apply_if(instance_group_id, |query, v| {
@@ -718,14 +733,18 @@ impl<'a> InstanceLogic<'a> {
                     .apply_if(status, |query, v| {
                         query.filter(instance::Column::Status.eq(v))
                     })
-                    .apply_if(instance_id, |query, v| {
+                    .apply_if(non_empty!(instance_id), |query, v| {
                         query.filter(instance::Column::InstanceId.is_in(v))
                     })
                     .as_query()
                     .clone(),
             )
-            .apply_if(ip, |query, v| {
-                query.and_where(instance::Column::Ip.is_in(v));
+            .apply_if(non_empty!(ip), |query, v| {
+                if v.len() == 1 {
+                    query.and_where(instance::Column::Ip.like(v[0].clone()));
+                } else {
+                    query.and_where(instance::Column::Ip.is_in(v));
+                }
             })
             .apply_if(instance_group_id, |query, v| {
                 query.and_where(instance::Column::InstanceGroupId.eq(v));

@@ -279,9 +279,13 @@ impl<'a> JobLogic<'a> {
                     error!("failed to send callback request: {}", e);
                 }
                 let (bundle_script_result, job_type) = if params.bundle_output.is_some() {
-                    let schedule_record = self.get_schedule(&params.schedule_id).await?.ok_or(
-                        anyhow::format_err!("cannot get schedule record {}", params.schedule_id),
-                    )?;
+                    let schedule_record = self
+                        .get_schedule_history(&params.schedule_id)
+                        .await?
+                        .ok_or(anyhow::format_err!(
+                            "cannot get schedule record {}",
+                            params.schedule_id
+                        ))?;
                     let job_record: job::Model = serde_json::from_value(
                         schedule_record
                             .snapshot_data
@@ -649,7 +653,7 @@ impl<'a> JobLogic<'a> {
             schedule_type: Set(schedule_type.to_string()),
             action: Set(action.to_string()),
             timer_expr: timer_expr.map_or(NotSet, Set),
-            restart_interval: restart_interval.map_or(NotSet, |v| Set(v.as_secs())),
+            restart_interval: restart_interval.map_or(NotSet, |v| Set(v.as_secs() as i32)),
             ..Default::default()
         })
         .exec(&self.ctx.db)
@@ -686,10 +690,10 @@ impl<'a> JobLogic<'a> {
         id: u64,
         mut instance_ids: Vec<String>,
         eid: String,
-        schedule_name: String,
+        name: String,
         timer_expr: Option<String>,
         actual_args: Option<serde_json::Value>,
-        created_user: String,
+        updated_user: String,
     ) -> Result<u64> {
         let endpoints = Instance::find()
             .filter(instance::Column::InstanceId.is_in(instance_ids))
@@ -714,13 +718,11 @@ impl<'a> JobLogic<'a> {
 
         let ret = JobSchedule::update(entity::job_schedule::ActiveModel {
             id: Set(id),
-            name: Set(schedule_name),
+            name: Set(name),
             eid: Set(eid.clone()),
-            job_type: Set(job_record.job_type.to_string()),
             snapshot_data: Set(Some(serde_json::to_value(job_record)?)),
             actual_args: Set(Some(serde_json::to_value(job_actual_args)?)),
-            created_user: Set(created_user.clone()),
-            updated_user: Set(created_user.clone()),
+            updated_user: Set(updated_user.clone()),
             instance_ids: Set(Some(serde_json::to_value(instance_ids)?)),
             timer_expr: timer_expr.map_or(NotSet, Set),
             ..Default::default()
@@ -1172,13 +1174,13 @@ impl<'a> JobLogic<'a> {
             .await?
             .ok_or(anyhow!("cannot found instance"))?;
 
-        let schedule_record = self
-            .get_schedule(&schedule_id)
-            .await?
-            .ok_or(anyhow::format_err!(
-                "cannot get shedule by {}",
-                schedule_id.clone()
-            ))?;
+        let schedule_record =
+            self.get_schedule_history(&schedule_id)
+                .await?
+                .ok_or(anyhow::format_err!(
+                    "cannot get shedule by {}",
+                    schedule_id.clone()
+                ))?;
 
         if !self
             .can_dispatch_job(
@@ -1321,7 +1323,16 @@ impl<'a> JobLogic<'a> {
         Ok(ret)
     }
 
-    pub async fn get_schedule(
+    pub async fn get_schedule(&self, id: u64) -> Result<Option<job_schedule::Model>> {
+        let ret = JobSchedule::find()
+            .filter(job_schedule::Column::Id.eq(id))
+            .one(&self.ctx.db)
+            .await?;
+
+        Ok(ret)
+    }
+
+    pub async fn get_schedule_history(
         &self,
         schedule_id: &str,
     ) -> Result<Option<job_schedule_history::Model>> {

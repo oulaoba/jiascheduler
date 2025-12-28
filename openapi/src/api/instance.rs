@@ -52,8 +52,6 @@ pub mod types {
     pub struct UserServerReq {
         pub ips: Option<Vec<String>>,
         pub instance_ids: Option<Vec<String>>,
-        pub ip: Option<String>,
-        pub instance_id: Option<String>,
         pub instance_group_id: Option<u64>,
         pub tag_id: Option<Vec<u64>>,
         pub status: Option<u8>,
@@ -283,48 +281,11 @@ impl InstanceApi {
         _session: &Session,
         user_info: Data<&logic::types::UserInfo>,
         Json(req): Json<types::UserServerReq>,
-        // Query(ip): Query<Option<String>>,
-        // Query(instance_id): Query<Option<String>>,
-        // Query(instance_group_id): Query<Option<u64>>,
-        // Query(tag_id): Query<Option<Vec<u64>>>,
-        // Query(status): Query<Option<u8>>,
-
-        // #[oai(
-        //     default = "crate::api::default_page_size",
-        //     validator(maximum(value = "10000"))
-        // )]
-        // Query(page_size): Query<u64>,
-        // #[oai(
-        //     default = "crate::api::default_page",
-        //     validator(maximum(value = "10000"))
-        // )]
-        // Query(page): Query<u64>,
     ) -> Result<ApiStdResponse<types::QueryUserServerResp>> {
         let svc = state.service();
         let user_id = user_info.user_id.clone();
 
         let can_manage_instance = state.can_manage_instance(&user_id).await?;
-
-        let search_ips = req.ip.filter(|v| v != "").map_or(None, |v| Some(vec![v]));
-        let search_ips = req.ips.clone().map_or(search_ips.clone(), |v| {
-            search_ips.map_or(Some(v.clone()), |v2| {
-                let mut tmp = v2.clone();
-                tmp.extend(v);
-                Some(tmp)
-            })
-        });
-
-        let search_ins = req
-            .instance_id
-            .filter(|v| v != "")
-            .map_or(None, |v| Some(vec![v]));
-        let search_ins = req.instance_ids.clone().map_or(search_ins.clone(), |v| {
-            search_ins.map_or(Some(v.clone()), |v2| {
-                let mut tmp = v2.clone();
-                tmp.extend(v);
-                Some(tmp)
-            })
-        });
 
         let (list, total) = match req.tag_id {
             Some(tag_id) if tag_id.len() > 0 => {
@@ -340,8 +301,8 @@ impl InstanceApi {
                         }),
                         req.instance_group_id.filter(|&v| v != 0),
                         req.status,
-                        search_ips.clone(),
-                        search_ins.clone(),
+                        req.ips.clone(),
+                        req.instance_ids.clone(),
                         Some(tag_id),
                         req.page - 1,
                         req.page_size,
@@ -354,10 +315,10 @@ impl InstanceApi {
                 let query_result = svc
                     .instance
                     .query_admin_server(
-                        search_ins.clone(),
+                        req.instance_ids.clone(),
                         req.instance_group_id.filter(|&v| v != 0),
                         req.status,
-                        search_ips.clone(),
+                        req.ips.clone(),
                         req.page - 1,
                         req.page_size,
                     )
@@ -369,10 +330,10 @@ impl InstanceApi {
                     .instance
                     .query_user_server(
                         user_id,
-                        search_ins.clone(),
+                        req.instance_ids.clone(),
                         req.instance_group_id.filter(|&v| v != 0),
                         req.status,
-                        search_ips.clone(),
+                        req.ips.clone(),
                         req.page - 1,
                         req.page_size,
                     )

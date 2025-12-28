@@ -9,6 +9,7 @@ mod timer;
 
 use automate::scheduler::types::ScheduleType;
 use chrono::Local;
+
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, EntityTrait, PaginatorTrait,
     QueryFilter, QueryOrder, QuerySelect, QueryTrait,

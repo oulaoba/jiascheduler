@@ -21,3 +21,11 @@ macro_rules! file_name {
             .to_string()
     };
 }
+/// convert empty array to None
+#[macro_export]
+macro_rules! non_empty {
+    ($arr:expr) => {
+        $arr.clone()
+            .and_then(|v| if v.is_empty() { None } else { Some(v) })
+    };
+}
