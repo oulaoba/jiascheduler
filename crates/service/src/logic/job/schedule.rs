@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::{num::NonZeroU64, str::FromStr, time::Duration};
 
 use anyhow::{Result, anyhow};
 
@@ -421,6 +421,38 @@ impl<'a> JobLogic<'a> {
         actual_args: Option<serde_json::Value>,
         created_user: String,
     ) -> Result<u64> {
+        self.schedule_job(
+            secret,
+            instance_ids,
+            eid,
+            is_sync,
+            schedule_name,
+            schedule_type,
+            action,
+            timer_expr,
+            restart_interval,
+            actual_args,
+            created_user,
+            None,
+        )
+        .await
+    }
+
+    pub async fn schedule_job(
+        &self,
+        secret: String,
+        instance_ids: Vec<String>,
+        eid: String,
+        is_sync: bool,
+        schedule_name: String,
+        schedule_type: ScheduleType,
+        action: automate::JobAction,
+        timer_expr: Option<String>,
+        restart_interval: Option<Duration>,
+        actual_args: Option<serde_json::Value>,
+        created_user: String,
+        schedule_pid: Option<NonZeroU64>,
+    ) -> Result<u64> {
         self.check_schedule_type(action.clone(), schedule_type.clone())?;
         let schedule_id = IdGenerator::get_schedule_uid();
         let endpoints = Instance::find()
@@ -641,26 +673,31 @@ impl<'a> JobLogic<'a> {
             .iter_mut()
             .for_each(|v| v.data = None);
 
-        let schedule_result = JobSchedule::insert(entity::job_schedule::ActiveModel {
-            name: Set(schedule_name.clone()),
-            eid: Set(eid.clone()),
-            job_type: Set(job_record.job_type.to_string()),
-            snapshot_data: Set(Some(serde_json::to_value(&job_record)?)),
-            actual_args: Set(Some(serde_json::to_value(&job_actual_args)?)),
-            created_user: Set(created_user.clone()),
-            updated_user: Set(created_user.clone()),
-            instance_ids: Set(Some(serde_json::to_value(&instance_ids)?)),
-            schedule_type: Set(schedule_type.to_string()),
-            action: Set(action.to_string()),
-            timer_expr: timer_expr.map_or(NotSet, Set),
-            restart_interval: restart_interval.map_or(NotSet, |v| Set(v.as_secs() as i32)),
-            ..Default::default()
-        })
-        .exec(&self.ctx.db)
-        .await?;
+        let schedule_pid = if let Some(v) = schedule_pid {
+            v.get()
+        } else {
+            JobSchedule::insert(entity::job_schedule::ActiveModel {
+                name: Set(schedule_name.clone()),
+                eid: Set(eid.clone()),
+                job_type: Set(job_record.job_type.to_string()),
+                snapshot_data: Set(Some(serde_json::to_value(&job_record)?)),
+                actual_args: Set(Some(serde_json::to_value(&job_actual_args)?)),
+                created_user: Set(created_user.clone()),
+                updated_user: Set(created_user.clone()),
+                instance_ids: Set(Some(serde_json::to_value(&instance_ids)?)),
+                schedule_type: Set(schedule_type.to_string()),
+                action: Set(action.to_string()),
+                timer_expr: timer_expr.map_or(NotSet, Set),
+                restart_interval: restart_interval.map_or(NotSet, |v| Set(v.as_secs() as i32)),
+                ..Default::default()
+            })
+            .exec(&self.ctx.db)
+            .await?
+            .last_insert_id
+        };
 
         let ret = JobScheduleHistory::insert(entity::job_schedule_history::ActiveModel {
-            parent_id: Set(schedule_result.last_insert_id),
+            parent_id: Set(schedule_pid),
             schedule_id: Set(schedule_id.clone()),
             name: Set(schedule_name),
             eid: Set(eid.clone()),

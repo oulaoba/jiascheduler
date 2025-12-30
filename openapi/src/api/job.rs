@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    num::{NonZeroI32, NonZeroU64},
+    time::Duration,
+};
 
 use crate::{
     api_response, default_local_time,
@@ -7,14 +10,14 @@ use crate::{
     local_time,
     logic::{self, job::types::BundleScriptRecord},
     middleware,
-    response::{std_into_error, ApiStdResponse},
+    response::std_into_error,
     return_err, return_ok, AppState,
 };
 
 use service::IdGenerator;
 
 use automate::{scheduler::types::ScheduleType, JobAction};
-use poem::{session::Session, web::Data, Endpoint, EndpointExt, Result};
+use poem::{session::Session, web::Data, Endpoint, EndpointExt};
 use poem_openapi::{
     param::{Header, Query},
     payload::Json,
@@ -283,6 +286,19 @@ pub mod types {
         pub schedule_id: String,
         pub action: String,
     }
+
+    #[derive(Object, Serialize, Default)]
+    pub struct ScheduleJobReq {
+        /// schedule primary id
+        pub schedule_pid: u64,
+        pub action: String,
+    }
+
+    #[derive(Object, Serialize, Default)]
+    pub struct ScheduleJobResp {
+        pub result: u64,
+    }
+
     #[derive(Object, Serialize, Default)]
     pub struct DeleteJobReq {
         pub eid: String,
@@ -733,7 +749,7 @@ impl JobApi {
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
         user_info: Data<&logic::types::UserInfo>,
         Json(req): Json<types::SaveJobReq>,
-    ) -> Result<ApiStdResponse<types::SaveJobResp>> {
+    ) -> api_response!(types::SaveJobResp) {
         let ok = state.is_change_forbid(&user_info.user_id).await?;
         if ok {
             return Err(NoPermission().into());
@@ -855,7 +871,7 @@ impl JobApi {
             validator(maximum(value = "10000"))
         )]
         Query(page_size): Query<u64>,
-    ) -> Result<ApiStdResponse<types::QueryJobResp>> {
+    ) -> api_response!(types::QueryJobResp) {
         let svc = state.service();
         let updated_time_range = updated_time_range.map(|v| (v[0].clone(), v[1].clone()));
         let default_eid = default_eid.filter(|v| v != "");
@@ -981,7 +997,7 @@ impl JobApi {
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
         Json(req): Json<types::DispatchJobReq>,
         user_info: Data<&logic::types::UserInfo>,
-    ) -> Result<ApiStdResponse<types::DispatchJobResp>> {
+    ) -> api_response!(types::DispatchJobResp) {
         let svc = state.service();
         let action = req.action.as_str().try_into()?;
         let schedule_type = req.schedule_type.as_str().try_into()?;
@@ -1014,6 +1030,66 @@ impl JobApi {
         return_ok!(types::DispatchJobResp { result: ret })
     }
 
+    #[oai(path = "/schedule", method = "post", transform = "set_middleware")]
+    pub async fn schedule(
+        &self,
+        state: Data<&AppState>,
+        user_info: Data<&logic::types::UserInfo>,
+        #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
+        Json(req): Json<types::ScheduleJobReq>,
+    ) -> api_response!(types::ScheduleJobResp) {
+        let svc = state.service();
+        let action = req.action.as_str().try_into()?;
+
+        let secret = state.conf.comet_secret.clone();
+
+        let schedule_record =
+            svc.job
+                .get_schedule(req.schedule_pid)
+                .await?
+                .ok_or(anyhow::anyhow!(
+                    "cannot found job schedule by schedule_pid: {}",
+                    req.schedule_pid
+                ))?;
+
+        let schedule_type = schedule_record.schedule_type.as_str().try_into()?;
+
+        if !svc
+            .job
+            .can_dispatch_job(&user_info, team_id, None, &schedule_record.eid)
+            .await?
+        {
+            return Err(NoPermission().into());
+        }
+
+        let instances: Vec<String> = serde_json::from_value(
+            schedule_record
+                .instance_ids
+                .ok_or(anyhow::format_err!("instances is required"))?,
+        )
+        .map_err(std_into_error)?;
+
+        let ret = svc
+            .job
+            .schedule_job(
+                secret,
+                instances,
+                schedule_record.eid,
+                false,
+                schedule_record.name,
+                schedule_type,
+                action,
+                None,
+                NonZeroI32::new(schedule_record.restart_interval)
+                    .map(|v| Duration::from_secs(v.get() as u64)),
+                schedule_record.actual_args,
+                user_info.username.clone(),
+                NonZeroU64::new(schedule_record.id),
+            )
+            .await?;
+        return_ok!(types::ScheduleJobResp { result: ret })
+    }
+
     #[oai(path = "/redispatch", method = "post", transform = "set_middleware")]
     pub async fn redispatch(
         &self,
@@ -1021,7 +1097,7 @@ impl JobApi {
         user_info: Data<&logic::types::UserInfo>,
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
         Json(req): Json<types::RedispatchJobReq>,
-    ) -> Result<ApiStdResponse<types::RedispatchJobResp>> {
+    ) -> api_response!(types::RedispatchJobResp) {
         let svc = state.service();
         let action: JobAction = req.action.as_str().try_into()?;
 
@@ -1109,7 +1185,7 @@ impl JobApi {
             validator(maximum(value = "10000"))
         )]
         Query(page_size): Query<u64>,
-    ) -> Result<ApiStdResponse<types::QueryRunResp>> {
+    ) -> api_response!(types::QueryRunResp) {
         let svc = state.service();
         let updated_time_range = updated_time_range.map(|v| (v[0].clone(), v[1].clone()));
         let search_username = if state.can_manage_job(&user_info.user_id).await? {
@@ -1232,7 +1308,7 @@ impl JobApi {
             validator(maximum(value = "10000"))
         )]
         Query(page_size): Query<u64>,
-    ) -> Result<ApiStdResponse<types::QueryScheduleHistoryResp>> {
+    ) -> api_response!(types::QueryScheduleHistoryResp) {
         let svc = state.service();
         let updated_time_range = updated_time_range.map(|v| (v[0].clone(), v[1].clone()));
         let search_username = if state.can_manage_job(&user_info.user_id).await? {
@@ -1315,7 +1391,7 @@ impl JobApi {
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
         user_info: Data<&logic::types::UserInfo>,
         Json(req): Json<types::SaveScheduleReq>,
-    ) -> Result<ApiStdResponse<types::SaveJobResp>> {
+    ) -> api_response!(types::SaveJobResp) {
         let svc = state.service();
 
         let schedule_record = svc.job.get_schedule(req.id).await?.ok_or(anyhow::anyhow!(
@@ -1383,7 +1459,7 @@ impl JobApi {
             validator(maximum(value = "10000"))
         )]
         Query(page_size): Query<u64>,
-    ) -> Result<ApiStdResponse<types::QueryScheduleResp>> {
+    ) -> api_response!(types::QueryScheduleResp) {
         let svc = state.service();
         let updated_time_range = updated_time_range.map(|v| (v[0].clone(), v[1].clone()));
         let search_username = if state.can_manage_job(&user_info.user_id).await? {
@@ -1492,7 +1568,7 @@ impl JobApi {
             validator(maximum(value = "10000"))
         )]
         Query(page_size): Query<u64>,
-    ) -> Result<ApiStdResponse<types::QueryExecResp>> {
+    ) -> api_response!(types::QueryExecResp) {
         let start_time_range = start_time_range.map(|v| (v[0].clone(), v[1].clone()));
         let svc = state.service();
 
@@ -1702,7 +1778,7 @@ impl JobApi {
         _session: &Session,
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
         Json(req): Json<types::ActionReq>,
-    ) -> Result<ApiStdResponse<types::ActionRes>> {
+    ) -> api_response!(types::ActionRes) {
         let svc = state.service();
         let action = req.action.into();
         let ret = svc
@@ -1731,7 +1807,7 @@ impl JobApi {
         user_info: Data<&logic::types::UserInfo>,
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
         Json(req): Json<types::SaveJobBundleScriptReq>,
-    ) -> Result<ApiStdResponse<types::SaveJobBundleScriptResp>> {
+    ) -> api_response!(types::SaveJobBundleScriptResp) {
         let args = match req.args {
             Some(v) => Some(serde_json::to_value(&v).map_err(std_into_error)?),
             None => None,
@@ -1788,7 +1864,7 @@ impl JobApi {
         user_info: Data<&logic::types::UserInfo>,
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
         Json(req): Json<types::DeleteJobBundleScriptReq>,
-    ) -> Result<ApiStdResponse<u64>> {
+    ) -> api_response!(u64) {
         let svc = state.service();
         if !svc
             .job
@@ -1827,7 +1903,7 @@ impl JobApi {
             validator(maximum(value = "10000"))
         )]
         Query(page_size): Query<u64>,
-    ) -> Result<ApiStdResponse<types::QueryJobBundleScriptResp>> {
+    ) -> api_response!(types::QueryJobBundleScriptResp) {
         let updated_time_range = updated_time_range.map(|v| (v[0].clone(), v[1].clone()));
         let svc = state.service();
         let default_eid = default_eid.filter(|v| v != "");
@@ -1908,7 +1984,7 @@ impl JobApi {
             validator(maximum(value = "10000"))
         )]
         Query(page_size): Query<u64>,
-    ) -> Result<ApiStdResponse<types::QueryJobTimerResp>> {
+    ) -> api_response!(types::QueryJobTimerResp) {
         let updated_time_range = updated_time_range.map(|v| (v[0].clone(), v[1].clone()));
         let svc = state.service();
 
@@ -1992,7 +2068,7 @@ impl JobApi {
         user_info: Data<&logic::types::UserInfo>,
         #[oai(name = "X-Team-Id")] Header(team_id): Header<Option<u64>>,
         Json(req): Json<types::SaveJobTimerReq>,
-    ) -> Result<ApiStdResponse<types::SaveJobTimerResp>> {
+    ) -> api_response!(types::SaveJobTimerResp) {
         let svc = state.service();
 
         if !svc
@@ -2063,7 +2139,7 @@ impl JobApi {
         state: Data<&AppState>,
         user_info: Data<&logic::types::UserInfo>,
         Json(req): Json<types::GetDashboardReq>,
-    ) -> Result<ApiStdResponse<types::GetDashboardResp>> {
+    ) -> api_response!(types::GetDashboardResp) {
         let svc = state.service();
 
         let job_summary = svc.job.get_summary(&user_info).await?;
@@ -2132,7 +2208,7 @@ impl JobApi {
             validator(maximum(value = "10000"))
         )]
         Query(page_size): Query<u64>,
-    ) -> Result<ApiStdResponse<types::QueryJobSupervisorResp>> {
+    ) -> api_response!(types::QueryJobSupervisorResp) {
         let updated_time_range = updated_time_range.map(|v| (v[0].clone(), v[1].clone()));
         let svc = state.service();
         let search_username = if state.can_manage_job(&user_info.user_id).await? {
