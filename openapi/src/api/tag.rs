@@ -29,6 +29,8 @@ pub mod types {
         #[default]
         #[oai(rename = "job")]
         Job,
+        #[oai(rename = "bundle_job")]
+        BundleJob,
         #[oai(rename = "instance")]
         Instance,
         #[oai(rename = "workflow")]
@@ -83,6 +85,7 @@ impl TagApi {
         let svc = state.service();
         let resource_type = match req.resource_type {
             types::ResourceType::Job => ResourceType::Job,
+            types::ResourceType::BundleJob => ResourceType::BundleJob,
             types::ResourceType::Instance => ResourceType::Instance,
             types::ResourceType::Workflow => ResourceType::Workflow,
         };
@@ -105,6 +108,7 @@ impl TagApi {
         let svc = state.service();
         let resource_type = match req.resource_type {
             types::ResourceType::Job => ResourceType::Job,
+            types::ResourceType::BundleJob => ResourceType::BundleJob,
             types::ResourceType::Instance => ResourceType::Instance,
             types::ResourceType::Workflow => ResourceType::Workflow,
         };
@@ -126,6 +130,7 @@ impl TagApi {
         let svc = state.service();
         let resource_type = match resource_type {
             types::ResourceType::Job => ResourceType::Job,
+            types::ResourceType::BundleJob => ResourceType::BundleJob,
             types::ResourceType::Instance => ResourceType::Instance,
             types::ResourceType::Workflow => ResourceType::Workflow,
         };

@@ -3,7 +3,7 @@ use crate::{
     entity::{instance, job, prelude::*, tag, tag_resource},
     state::AppContext,
 };
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use entity::workflow;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, EntityTrait, JoinType, QueryFilter, QuerySelect,
@@ -31,6 +31,17 @@ impl<'a> TagLogic<'a> {
             ResourceType::Job => {
                 let record = Job::find()
                     .filter(job::Column::Id.eq(resource_id))
+                    .filter(job::Column::JobType.eq("default"))
+                    .one(&self.ctx.db)
+                    .await?;
+                if record.is_none() {
+                    anyhow::bail!("cannot found job by id {}", resource_id);
+                }
+            }
+            ResourceType::BundleJob => {
+                let record = Job::find()
+                    .filter(job::Column::Id.eq(resource_id))
+                    .filter(job::Column::JobType.eq("bundle"))
                     .one(&self.ctx.db)
                     .await?;
                 if record.is_none() {
@@ -74,30 +85,6 @@ impl<'a> TagLogic<'a> {
             inserted.id.as_ref().to_owned()
         } else {
             tag_record.unwrap().id
-        };
-
-        match resource_type {
-            ResourceType::Job => {
-                Job::find()
-                    .filter(job::Column::Id.eq(resource_id))
-                    .one(&self.ctx.db)
-                    .await?
-                    .ok_or(anyhow!("cannot found job by id {resource_id}"))?;
-            }
-            ResourceType::Instance => {
-                Instance::find()
-                    .filter(instance::Column::Id.eq(resource_id))
-                    .one(&self.ctx.db)
-                    .await?
-                    .ok_or(anyhow!("cannot found instance by id {resource_id}"))?;
-            }
-            ResourceType::Workflow => {
-                Workflow::find()
-                    .filter(workflow::Column::Id.eq(resource_id))
-                    .one(&self.ctx.db)
-                    .await?
-                    .ok_or(anyhow!("cannot found workflow by id {resource_id}"))?;
-            }
         };
 
         tag_resource::ActiveModel {
@@ -151,7 +138,7 @@ impl<'a> TagLogic<'a> {
             .filter(tag_resource::Column::ResourceType.eq(resource_type.to_string()));
 
         let select = match resource_type {
-            ResourceType::Job => select
+            ResourceType::Job | ResourceType::BundleJob => select
                 .join_rev(
                     JoinType::LeftJoin,
                     Job::belongs_to(TagResource)
@@ -160,8 +147,16 @@ impl<'a> TagLogic<'a> {
                         .into(),
                 )
                 .filter(job::Column::IsDeleted.eq(false))
+                .filter(
+                    job::Column::JobType.eq(if resource_type == ResourceType::Job {
+                        "default"
+                    } else {
+                        "bundle"
+                    }),
+                )
                 .apply_if(team_id, |q, v| q.filter(job::Column::TeamId.eq(v)))
                 .apply_if(username, |q, v| q.filter(job::Column::CreatedUser.eq(v))),
+
             ResourceType::Instance => select.join_rev(
                 JoinType::LeftJoin,
                 Instance::belongs_to(TagResource)

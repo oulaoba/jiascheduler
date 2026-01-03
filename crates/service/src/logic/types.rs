@@ -138,11 +138,12 @@ pub struct TeamRecord {
     pub updated_time: DateTimeLocal,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub enum ResourceType {
     Job,
     Instance,
     Workflow,
+    BundleJob,
 }
 
 impl Display for ResourceType {
@@ -151,6 +152,7 @@ impl Display for ResourceType {
             ResourceType::Job => write!(f, "job"),
             ResourceType::Instance => write!(f, "instance"),
             ResourceType::Workflow => write!(f, "workflow"),
+            ResourceType::BundleJob => write!(f, "bundle_job"),
         }
     }
 }
