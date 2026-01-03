@@ -17,7 +17,7 @@ pub struct Model {
     pub snapshot_data: Option<Json>,
     pub actual_args: Option<Json>,
     pub instance_ids: Option<Json>,
-    pub timer_expr: String,
+    pub timer_expr: Option<Json>,
     pub restart_interval: i32,
     pub action: String,
     pub created_time: DateTimeLocal,

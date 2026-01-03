@@ -154,7 +154,7 @@ CREATE TABLE `job_schedule` (
     `schedule_type` varchar(20) NOT NULL DEFAULT '' COMMENT '调度类型 once flow timer daemon',
     `snapshot_data` json DEFAULT NULL COMMENT '快照数据',
     `instance_ids` JSON DEFAULT NULL COMMENT 'bind instance ids',
-    `timer_expr` VARCHAR(200) NOT NULL DEFAULT '' COMMENT 'timer job cron expr',
+    `timer_expr` JSON NULL COMMENT 'timer expr',
     `restart_interval` INT NOT NULL DEFAULT 3 COMMENT 'daemon job restart interval',
     `action` varchar(20) NOT NULL DEFAULT '' COMMENT 'action: exec kill start_timer stop_timer...',
     `created_user` varchar(50) NOT NULL DEFAULT '' COMMENT '创建人',
@@ -172,4 +172,4 @@ CREATE TABLE `job_schedule` (
 ALTER TABLE
     job_schedule_history
 ADD
-    parent_id BIGINT UNSIGNED DEFAULT 0 NOT NULL COMMENT 'parent id';
+    schedule_pid BIGINT UNSIGNED DEFAULT 0 NOT NULL COMMENT 'parent id';

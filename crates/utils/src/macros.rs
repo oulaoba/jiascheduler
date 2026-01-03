@@ -29,3 +29,11 @@ macro_rules! non_empty {
             .and_then(|v| if v.is_empty() { None } else { Some(v) })
     };
 }
+
+/// check if v is valid json
+#[macro_export]
+macro_rules! is_valid_json {
+    ($v:expr) => {
+        serde_json::from_str::<serde_json::Value>($v).is_ok()
+    };
+}

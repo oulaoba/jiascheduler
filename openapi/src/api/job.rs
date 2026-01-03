@@ -33,7 +33,9 @@ pub mod types {
     use poem_openapi::{Enum, Object};
 
     use serde::{Deserialize, Serialize};
-    use serde_json::Value;
+    use serde_json::{json, Value};
+    use service::logic::types::CustomTimerExpr;
+    use utils::is_valid_json;
 
     use crate::logic;
 
@@ -386,6 +388,7 @@ pub mod types {
         pub id: u64,
         pub job_name: String,
         pub schedule_id: String,
+        pub schedule_pid: u64,
         pub bind_ip: String,
         pub is_online: bool,
         pub job_type: String,
@@ -547,8 +550,14 @@ pub mod types {
         pub info: String,
     }
 
-    #[derive(Object, Serialize, Default)]
+    fn default_time_zone() -> String {
+        "local".to_string()
+    }
+
+    #[derive(Object, Serialize, Deserialize, Default)]
     pub struct TimerExpr {
+        #[oai(default = "default_time_zone")]
+        pub timezone: String,
         pub second: String,
         pub minute: String,
         pub hour: String,
@@ -559,8 +568,38 @@ pub mod types {
 
     impl From<String> for TimerExpr {
         fn from(value: String) -> Self {
-            let vec: Vec<&str> = value.split(" ").collect();
+            if is_valid_json!(&value) {
+                let v = serde_json::from_str::<CustomTimerExpr>(&value).unwrap();
+                let vec: Vec<&str> = v.expr.split(" ").collect();
+                Self {
+                    timezone: v.timezone.to_string(),
+                    second: vec.get(0).map_or("1".to_string(), |&v| v.to_string()),
+                    minute: vec.get(1).map_or("1".to_string(), |&v| v.to_string()),
+                    hour: vec.get(2).map_or("1".to_string(), |&v| v.to_string()),
+                    day_of_month: vec.get(3).map_or("1".to_string(), |&v| v.to_string()),
+                    month: vec.get(4).map_or("1".to_string(), |&v| v.to_string()),
+                    year: vec.get(5).map_or("1".to_string(), |&v| v.to_string()),
+                }
+            } else {
+                let vec: Vec<&str> = value.split(" ").collect();
+                Self {
+                    timezone: "local".to_string(),
+                    second: vec.get(0).map_or("1".to_string(), |&v| v.to_string()),
+                    minute: vec.get(1).map_or("1".to_string(), |&v| v.to_string()),
+                    hour: vec.get(2).map_or("1".to_string(), |&v| v.to_string()),
+                    day_of_month: vec.get(3).map_or("1".to_string(), |&v| v.to_string()),
+                    month: vec.get(4).map_or("1".to_string(), |&v| v.to_string()),
+                    year: vec.get(5).map_or("1".to_string(), |&v| v.to_string()),
+                }
+            }
+        }
+    }
+
+    impl From<logic::types::CustomTimerExpr> for TimerExpr {
+        fn from(value: logic::types::CustomTimerExpr) -> Self {
+            let vec: Vec<&str> = value.expr.split(" ").collect();
             Self {
+                timezone: value.timezone.to_string(),
                 second: vec.get(0).map_or("1".to_string(), |&v| v.to_string()),
                 minute: vec.get(1).map_or("1".to_string(), |&v| v.to_string()),
                 hour: vec.get(2).map_or("1".to_string(), |&v| v.to_string()),
@@ -573,10 +612,27 @@ pub mod types {
 
     impl Into<String> for TimerExpr {
         fn into(self) -> String {
-            format!(
-                "{} {} {} {} {} {}",
-                self.second, self.minute, self.hour, self.day_of_month, self.month, self.year
-            )
+            let v = json!({
+                "timezone":self.timezone,
+                "expr":format!(
+                    "{} {} {} {} {} {}",
+                    self.second, self.minute, self.hour, self.day_of_month, self.month, self.year
+                ),
+            });
+
+            v.to_string()
+        }
+    }
+
+    impl Into<CustomTimerExpr> for TimerExpr {
+        fn into(self) -> CustomTimerExpr {
+            CustomTimerExpr {
+                timezone: self.timezone,
+                expr: format!(
+                    "{} {} {} {} {} {}",
+                    self.second, self.minute, self.hour, self.day_of_month, self.month, self.year
+                ),
+            }
         }
     }
 
@@ -1554,6 +1610,7 @@ impl JobApi {
             custom = "super::OneOfValidator::new(vec![\"once\",\"timer\",\"flow\",\"daemon\"])"
         ))]
         Query(schedule_type): Query<Option<String>>,
+        #[oai(default)] Query(schedule_pid): Query<Option<u64>>,
         #[oai(default)] Query(schedule_id): Query<Option<String>>,
         #[oai(default)] Query(eid): Query<Option<String>>,
 
@@ -1581,6 +1638,7 @@ impl JobApi {
             .job
             .query_exec_history(
                 job_type,
+                NonZeroU64::new(schedule_pid.unwrap_or_default()),
                 schedule_id.filter(|v| v != ""),
                 schedule_type,
                 team_id,
@@ -1611,6 +1669,7 @@ impl JobApi {
             .map(|v| types::ExecRecord {
                 id: v.id,
                 schedule_id: v.schedule_id,
+                schedule_pid: v.schedule_pid,
                 bind_ip: v.ip,
                 is_online: v.is_online,
                 exit_status: v.exit_status,

@@ -187,7 +187,7 @@ pub enum CompletedCallbackTriggerType {
     Error,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct CustomTimerExpr {
     pub timezone: String,
     pub expr: String,

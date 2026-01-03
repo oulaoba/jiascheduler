@@ -41,6 +41,7 @@ pub struct ExecHistoryRelatedScheduleModel {
     pub job_id: u64,
     pub job_name: String,
     pub schedule_id: String,
+    pub schedule_pid: u64,
     pub ip: String,
     pub namespace: String,
     pub job_type: String,

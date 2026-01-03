@@ -34,7 +34,10 @@ use crate::{
     logic::{
         executor::ExecutorLogic,
         job::types::DispatchResult,
-        types::{CompletedCallbackOpts, CompletedCallbackTriggerType, ResourceType, UserInfo},
+        types::{
+            CompletedCallbackOpts, CompletedCallbackTriggerType, CustomTimerExpr, ResourceType,
+            UserInfo,
+        },
     },
 };
 
@@ -416,7 +419,7 @@ impl<'a> JobLogic<'a> {
         schedule_name: String,
         schedule_type: ScheduleType,
         action: automate::JobAction,
-        timer_expr: Option<String>,
+        timer_expr: Option<CustomTimerExpr>,
         restart_interval: Option<Duration>,
         actual_args: Option<serde_json::Value>,
         created_user: String,
@@ -447,7 +450,7 @@ impl<'a> JobLogic<'a> {
         schedule_name: String,
         schedule_type: ScheduleType,
         action: automate::JobAction,
-        timer_expr: Option<String>,
+        timer_expr: Option<CustomTimerExpr>,
         restart_interval: Option<Duration>,
         actual_args: Option<serde_json::Value>,
         created_user: String,
@@ -545,7 +548,7 @@ impl<'a> JobLogic<'a> {
             restart_interval,
             created_user: created_user.clone(),
             schedule_id: schedule_id.clone(),
-            timer_expr: timer_expr.clone(),
+            timer_expr: timer_expr.clone().map(|v| v.expr),
             is_sync,
             action: action.clone(),
         };
@@ -687,7 +690,7 @@ impl<'a> JobLogic<'a> {
                 instance_ids: Set(Some(serde_json::to_value(&instance_ids)?)),
                 schedule_type: Set(schedule_type.to_string()),
                 action: Set(action.to_string()),
-                timer_expr: timer_expr.map_or(NotSet, Set),
+                timer_expr: Set(timer_expr.map(|v| serde_json::to_value(v)).transpose()?),
                 restart_interval: restart_interval.map_or(NotSet, |v| Set(v.as_secs() as i32)),
                 ..Default::default()
             })
@@ -697,7 +700,7 @@ impl<'a> JobLogic<'a> {
         };
 
         let ret = JobScheduleHistory::insert(entity::job_schedule_history::ActiveModel {
-            parent_id: Set(schedule_pid),
+            schedule_pid: Set(schedule_pid),
             schedule_id: Set(schedule_id.clone()),
             name: Set(schedule_name),
             eid: Set(eid.clone()),
@@ -728,7 +731,7 @@ impl<'a> JobLogic<'a> {
         mut instance_ids: Vec<String>,
         eid: String,
         name: String,
-        timer_expr: Option<String>,
+        timer_expr: Option<CustomTimerExpr>,
         actual_args: Option<serde_json::Value>,
         updated_user: String,
     ) -> Result<u64> {
@@ -761,7 +764,7 @@ impl<'a> JobLogic<'a> {
             actual_args: Set(Some(serde_json::to_value(job_actual_args)?)),
             updated_user: Set(updated_user.clone()),
             instance_ids: Set(Some(serde_json::to_value(instance_ids)?)),
-            timer_expr: timer_expr.map_or(NotSet, Set),
+            timer_expr: Set(timer_expr.map(|v| serde_json::to_value(v)).transpose()?),
             ..Default::default()
         })
         .exec(&self.ctx.db)
