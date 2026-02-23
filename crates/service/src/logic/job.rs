@@ -254,6 +254,24 @@ impl<'a> JobLogic<'a> {
             == Some(true));
     }
 
+    pub async fn can_write_schedule(
+        &self,
+        user_info: &UserInfo,
+        team_id: Option<u64>,
+        schedule_id: Option<String>,
+    ) -> Result<bool> {
+        let Some(schedule_record) = JobScheduleHistory::find()
+            .filter(job_schedule_history::Column::ScheduleId.eq(schedule_id))
+            .one(&self.ctx.db)
+            .await?
+        else {
+            return Ok(false);
+        };
+
+        self.can_write_job(user_info, team_id, Some(schedule_record.eid.into()))
+            .await
+    }
+
     pub async fn can_write_schedule_by_id(
         &self,
         user_info: &UserInfo,
